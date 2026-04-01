@@ -1,0 +1,7 @@
+{
+  "name": "Zenith AI Tutor",
+  "description": "A high-fidelity interactive learning experience featuring perfectly calibrated voice, diagrams, and real-time AI explanations.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
