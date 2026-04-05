@@ -299,67 +299,57 @@ Each step MUST follow this exact 7-part pattern:
 - Use markdown bullet points (- ) and tables where they add clarity
 - LAST STEP ONLY: Append a "### 📚 Full Summary" section with 4 bullet points at the END of the "narrative" STRING
 - Phrases to use: "Imagine you're building Swiggy's delivery app...", "Here's what blew my mind...", "Think of it like...", "The tricky part that trips up 90% of beginners is..."
-- Write as if talking to a curious 20-year-old who wants to actually BUILD things
+━━━ TEACHING STRUCTURE IN NARRATIVE ━━━
+The narrative field is read aloud by Text-to-Speech. It MUST:
+1. 🎣 HOOK — Surprising fact or question (1-2 sentences)
+2. 🧠 CONCEPT — Core idea in plain English
+3. 🌍 EXAMPLE — Specific real-world example (real names, real numbers)
+4. 🔁 ANALOGY — "Think of it like..." comparison
+5. 💎 TAKEAWAY — One crisp sentence to remember
 
-⛔ CRITICAL — NEVER put LaTeX or math symbols in the "narrative" field:
-  - narrative is read aloud by a Text-to-Speech engine
-  - NEVER write: $6CO_2$, \\(formula\\), $$...$$, \\xrightarrow, \\frac{}{}, \\sqrt{}
-  - INSTEAD say: "the photosynthesis equation", "the quadratic formula", "the chemical reaction equation", "the speed formula v equals d over t"
-  - LaTeX goes ONLY inside visualization.data (the KaTeX/math panel shown visually)
-  - Rule: if a human reading the narrative aloud would say something strange, rewrite it
+⛔ ZERO LaTeX in narrative. Write "the formula is..." not "$$\\frac{...}$$"
 
-━━━ VISUALIZATION MANDATE ━━━
-THIS IS NON-NEGOTIABLE. You MUST generate BOTH:
-A) A rich visualization (type + data) based on topic type
-B) A complete flowData with minimum 5-6 nodes
-
-✅ Does it have AT LEAST TWO (2) visual nodes (nodeType: "image") with valid imageUrls? (People learn faster with multiple pictures!)
-✅ Are the "image" nodes connected to the relevant parts of the flow?
-✅ Does it have a START node (nodeType: "input")?
-✅ Does it have an END/RESULT node (nodeType: "output")?
-✅ Are there PROCESS nodes (nodeType: "process") for actions/steps?
-✅ Are DECISIONS/CONDITIONS shown as DIAMONDS (nodeType: "decision")?
-✅ Are ALL nodes connected with edges?
-✅ Do edges have meaningful labels (e.g., "YES ✓", "NO ✗", "triggers", "returns")?
-✅ Are there at least 6-7 nodes total?
-✅ Are there animated: true on critical path edges?
+━━━ EDGE RULES ━━━
+- Every node MUST have at least 1 incoming OR outgoing edge
+- explanation/example/formula nodes connect as branches OFF the main flow
+- Use meaningful labels: "explains", "for example", "formula", "YES ✓", "NO ✗", "produces"
+- animated: true on the main critical path
 
 ━━━ TIMELINE EMOJI RULES ━━━
-Include 3–4 "draw" events per step with floating emoji annotations:
+Include 3–4 floating emoji annotations per step:
 { "time": 2, "action": "draw", "element": { "id": "e1", "type": "emoji", "content": "💡", "label": "Key idea", "x": 75, "y": 20 } }
-- x and y are 0–100 percentage positions on canvas
-- SPACE THEM OUT: use varied positions like (15,70), (80,25), (45,85), (90,60)
-- Never put all emojis at the same position
+Space them at varied positions: (15,70), (80,25), (45,85), (90,60)
 
 ━━━ OUTPUT FORMAT — STRICTLY FOLLOW ━━━
-Return ONLY valid JSON — NO markdown, NO backticks, NO explanation outside JSON:
+Return ONLY valid JSON — NO markdown, NO backticks, NO text outside JSON:
 {
   "steps": [
     {
       "title": "Short Section Title (max 6 words)",
-      "narrative": "Full teaching text here (NO LaTeX, NO math symbols — plain English only, TTS will read this)",
-      "duration": 28,
+      "narrative": "Full teaching text — no LaTeX, plain English for TTS",
+      "duration": 30,
       "visualization": {
-        "type": "code|katex|markdown|chart",
+        "type": "katex|code|markdown|chart",
         "data": "...",
         "flowData": {
           "nodes": [
-            { "id": "img1", "label": "Photosynthesis Process", "detail": "Visual Reference", "nodeType": "image", "imageUrl": "https://image.pollinations.ai/prompt/photosynthesis+plant+sunlight+diagram+educational?width=1024&height=576&nologo=true&model=flux", "color": "#818CF8" },
-            { "id": "n1", "label": "🟢 Start", "detail": "Entry point", "nodeType": "input", "color": "#3B82F6" },
-            { "id": "n2", "label": "⚙️ Process Step", "detail": "What happens here", "nodeType": "process", "color": "#10B981" },
-            { "id": "n3", "label": "🔶 Decision?", "detail": "Condition being checked", "nodeType": "decision", "color": "#F59E0B" },
-            { "id": "n4", "label": "✅ YES Path", "detail": "Result when true", "nodeType": "process", "color": "#34D399" },
-            { "id": "n5", "label": "❌ NO Path", "detail": "Result when false", "nodeType": "process", "color": "#EF4444" },
-            { "id": "n6", "label": "🏁 Final Result", "detail": "Output", "nodeType": "output", "color": "#8B5CF6" }
+            { "id": "img1", "label": "Photosynthesis Process", "detail": "How plants convert light into food", "nodeType": "image", "imageUrl": "https://image.pollinations.ai/prompt/photosynthesis+plant+chloroplast+sunlight+educational+diagram?width=1024&height=576&nologo=true", "color": "#818CF8" },
+            { "id": "n1", "label": "🟢 Sunlight Hits Leaf", "detail": "Entry point for energy", "nodeType": "input", "color": "#3B82F6" },
+            { "id": "exp1", "label": "💡 What is Photosynthesis?", "detail": "The process where plants use sunlight, water, and CO2 to produce glucose and oxygen. It is how plants make their own food.", "nodeType": "explanation", "color": "#818CF8" },
+            { "id": "n2", "label": "⚙️ Light Reaction", "detail": "ATP + NADPH produced in thylakoid", "nodeType": "process", "color": "#10B981" },
+            { "id": "n3", "label": "⚙️ Calvin Cycle", "detail": "CO2 fixed into glucose in stroma", "nodeType": "process", "color": "#6366F1" },
+            { "id": "ex1", "label": "🌍 Real World: Crop Farming", "detail": "Indian wheat farms rely on photosynthesis to produce 100 million tonnes per year. No photosynthesis = no food.", "nodeType": "example", "color": "#34D399" },
+            { "id": "f1", "label": "📐 The Equation", "detail": "6CO2 + 6H2O + Light Energy → C6H12O6 (Glucose) + 6O2", "nodeType": "formula", "color": "#FBBF24" },
+            { "id": "n6", "label": "🏁 Glucose + Oxygen", "detail": "Food for plant, oxygen for us", "nodeType": "output", "color": "#8B5CF6" }
           ],
           "edges": [
-            { "id": "e_img", "source": "img1", "target": "n1", "label": "visualize", "animated": true },
-            { "id": "e1", "source": "n1", "target": "n2", "label": "begin", "animated": true },
-            { "id": "e2", "source": "n2", "target": "n3", "label": "evaluate", "animated": true },
-            { "id": "e3", "source": "n3", "target": "n4", "label": "YES ✓", "animated": true },
-            { "id": "e4", "source": "n3", "target": "n5", "label": "NO ✗", "animated": false },
-            { "id": "e5", "source": "n4", "target": "n6", "label": "merge", "animated": true },
-            { "id": "e6", "source": "n5", "target": "n6", "label": "merge", "animated": true }
+            { "id": "e0", "source": "img1", "target": "n1", "label": "visualize", "animated": true },
+            { "id": "e1", "source": "n1", "target": "exp1", "label": "explains", "animated": false },
+            { "id": "e2", "source": "n1", "target": "n2", "label": "triggers", "animated": true },
+            { "id": "e3", "source": "n2", "target": "n3", "label": "feeds into", "animated": true },
+            { "id": "e4", "source": "n2", "target": "ex1", "label": "for example", "animated": false },
+            { "id": "e5", "source": "n3", "target": "f1", "label": "formula", "animated": false },
+            { "id": "e6", "source": "n3", "target": "n6", "label": "produces", "animated": true }
           ]
         }
       },
@@ -422,34 +412,37 @@ const fetchGroq = async (
  */
 const generateFallbackFlowData = (topicType: TopicType, title: string) => {
   const safeTitle = encodeURIComponent(title.replace(/[^a-zA-Z0-9\s]/g, '').trim());
-  const imgNode = { 
-    id: 'img1', 
-    label: title, 
-    detail: 'Visual Anchor', 
-    nodeType: 'image', 
-    imageUrl: `https://image.pollinations.ai/prompt/${safeTitle}+diagram+educational?width=800&height=450&nologo=true` 
+  const imgNode = {
+    id: 'img1',
+    label: title,
+    detail: 'Visual Anchor',
+    nodeType: 'image',
+    imageUrl: `https://image.pollinations.ai/prompt/${safeTitle}+educational+detailed+diagram+infographic?width=1024&height=576&nologo=true`,
   };
-  const imgEdge = { id: 'e_img', source: 'img1', target: 'n1', label: 'visualize', animated: true };
 
   if (topicType === 'code') {
     return {
       nodes: [
         imgNode,
-        { id: 'n1', label: '🟢 Program Start', detail: 'Execution begins', nodeType: 'input', color: '#3B82F6' },
-        { id: 'n2', label: `⚙️ ${title}`, detail: 'Core logic applied', nodeType: 'process', color: '#6366F1' },
-        { id: 'n3', label: '🔶 Condition Met?', detail: 'Evaluate the check', nodeType: 'decision', color: '#F59E0B' },
+        { id: 'exp1', label: `💡 What is ${title}?`, detail: `${title} is a programming construct that controls how your code executes. Understanding it is essential for building real-world applications.`, nodeType: 'explanation' },
+        { id: 'n1', label: '🟢 Program Start', detail: 'Execution begins here', nodeType: 'input', color: '#3B82F6' },
+        { id: 'n2', label: `⚙️ Apply ${title}`, detail: 'Core logic runs here', nodeType: 'process', color: '#6366F1' },
+        { id: 'n3', label: '🔶 Condition?', detail: 'Evaluate the check', nodeType: 'decision', color: '#F59E0B' },
         { id: 'n4', label: '✅ True Branch', detail: 'Execute if-block', nodeType: 'process', color: '#10B981' },
         { id: 'n5', label: '❌ False Branch', detail: 'Execute else-block', nodeType: 'process', color: '#EF4444' },
+        { id: 'ex1', label: '🌍 Real World Example', detail: `Used in apps like Swiggy, Netflix, and Google Maps to make decisions millions of times per second.`, nodeType: 'example', color: '#34D399' },
         { id: 'n6', label: '🏁 Result / Return', detail: 'Output produced', nodeType: 'output', color: '#8B5CF6' },
       ],
       edges: [
-        imgEdge,
-        { id: 'e1', source: 'n1', target: 'n2', label: 'start', animated: true },
-        { id: 'e2', source: 'n2', target: 'n3', label: 'evaluate', animated: true },
-        { id: 'e3', source: 'n3', target: 'n4', label: 'YES ✓', animated: true },
-        { id: 'e4', source: 'n3', target: 'n5', label: 'NO ✗', animated: false },
-        { id: 'e5', source: 'n4', target: 'n6', label: 'done', animated: true },
-        { id: 'e6', source: 'n5', target: 'n6', label: 'done', animated: true },
+        { id: 'e0', source: 'img1', target: 'n1', label: 'visualize', animated: true },
+        { id: 'e1', source: 'n1', target: 'exp1', label: 'explains', animated: false },
+        { id: 'e2', source: 'n1', target: 'n2', label: 'start', animated: true },
+        { id: 'e3', source: 'n2', target: 'n3', label: 'evaluate', animated: true },
+        { id: 'e4', source: 'n3', target: 'n4', label: 'YES ✓', animated: true },
+        { id: 'e5', source: 'n3', target: 'n5', label: 'NO ✗', animated: false },
+        { id: 'e6', source: 'n4', target: 'n6', label: 'done', animated: true },
+        { id: 'e7', source: 'n5', target: 'n6', label: 'done', animated: true },
+        { id: 'e8', source: 'n4', target: 'ex1', label: 'example', animated: false },
       ],
     };
   }
@@ -458,39 +451,49 @@ const generateFallbackFlowData = (topicType: TopicType, title: string) => {
     return {
       nodes: [
         imgNode,
-        { id: 'n1', label: '📥 Given / Input', detail: 'Known values / reactants', nodeType: 'input', color: '#3B82F6' },
-        { id: 'n2', label: '🔬 Apply Concept', detail: title, nodeType: 'process', color: '#6366F1' },
-        { id: 'n3', label: '⚗️ Transformation', detail: 'Reaction / calculation step', nodeType: 'process', color: '#F59E0B' },
-        { id: 'n4', label: '🔶 Valid Result?', detail: 'Check constraints', nodeType: 'decision', color: '#EC4899' },
-        { id: 'n5', label: '📊 Output / Product', detail: 'Final answer or product', nodeType: 'output', color: '#10B981' },
+        { id: 'exp1', label: `💡 What is ${title}?`, detail: `${title} is a mathematical concept used to solve real-world problems. It provides a systematic way to understand quantitative relationships.`, nodeType: 'explanation' },
+        { id: 'n1', label: '📥 Given / Input', detail: 'Known values or conditions', nodeType: 'input', color: '#3B82F6' },
+        { id: 'n2', label: `⚙️ Apply ${title}`, detail: 'Core calculation step', nodeType: 'process', color: '#6366F1' },
+        { id: 'n3', label: '⚙️ Transform', detail: 'Mathematical transformation', nodeType: 'process', color: '#F59E0B' },
+        { id: 'f1', label: '📐 Key Formula', detail: `The formula that defines ${title} — apply it step by step with known values.`, nodeType: 'formula', color: '#FBBF24' },
+        { id: 'ex1', label: '🌍 Real World: Applied Math', detail: `Engineers at ISRO use ${title} to calculate satellite trajectories. Without it, launches would fail.`, nodeType: 'example', color: '#34D399' },
+        { id: 'n4', label: '🔶 Valid?', detail: 'Check constraints', nodeType: 'decision', color: '#EC4899' },
+        { id: 'n5', label: '📊 Final Answer', detail: 'Result', nodeType: 'output', color: '#10B981' },
       ],
       edges: [
-        imgEdge,
-        { id: 'e1', source: 'n1', target: 'n2', label: 'use', animated: true },
-        { id: 'e2', source: 'n2', target: 'n3', label: 'apply', animated: true },
-        { id: 'e3', source: 'n3', target: 'n4', label: 'check', animated: true },
-        { id: 'e4', source: 'n4', target: 'n5', label: 'YES ✓', animated: true },
-        { id: 'e5', source: 'n4', target: 'n2', label: 'retry', animated: false },
+        { id: 'e0', source: 'img1', target: 'n1', label: 'visualize', animated: true },
+        { id: 'e1', source: 'n1', target: 'exp1', label: 'explains', animated: false },
+        { id: 'e2', source: 'n1', target: 'n2', label: 'use', animated: true },
+        { id: 'e3', source: 'n2', target: 'f1', label: 'formula', animated: false },
+        { id: 'e4', source: 'n2', target: 'n3', label: 'apply', animated: true },
+        { id: 'e5', source: 'n3', target: 'n4', label: 'check', animated: true },
+        { id: 'e6', source: 'n4', target: 'n5', label: 'YES ✓', animated: true },
+        { id: 'e7', source: 'n4', target: 'n2', label: 'retry', animated: false },
+        { id: 'e8', source: 'n3', target: 'ex1', label: 'for example', animated: false },
       ],
     };
   }
 
-  // concept / history / comparison
+  // concept / history / general
   return {
     nodes: [
       imgNode,
-      { id: 'n1', label: `📌 ${title}`, nodeType: 'input', color: '#6366F1' },
-      { id: 'n2', label: '🧩 Core Components', nodeType: 'process', color: '#10B981' },
-      { id: 'n3', label: '🔶 Key Decision', nodeType: 'decision', color: '#F59E0B' },
-      { id: 'n4', label: '🌍 Real-World Use', nodeType: 'process', color: '#3B82F6' },
-      { id: 'n5', label: '✅ Outcome', nodeType: 'output', color: '#34D399' },
+      { id: 'exp1', label: `💡 What is ${title}?`, detail: `${title} is a fundamental concept that shapes how we understand the world. Breaking it down reveals its elegance and real-world power.`, nodeType: 'explanation' },
+      { id: 'n1', label: `📌 ${title}`, detail: 'Core concept entry', nodeType: 'input', color: '#6366F1' },
+      { id: 'n2', label: '🧩 Core Components', detail: 'The key parts that make this work', nodeType: 'process', color: '#10B981' },
+      { id: 'n3', label: '🔶 Key Decision', detail: 'Critical choice or branching logic', nodeType: 'decision', color: '#F59E0B' },
+      { id: 'ex1', label: '🌍 Real World Use', detail: `Companies like Google, Amazon, and Tesla apply ${title} to solve billion-dollar problems every day.`, nodeType: 'example', color: '#34D399' },
+      { id: 'n4', label: '🌍 Real-World Application', detail: 'Where this concept is applied', nodeType: 'process', color: '#3B82F6' },
+      { id: 'n5', label: '✅ Outcome / Impact', detail: 'What changes because of this', nodeType: 'output', color: '#8B5CF6' },
     ],
     edges: [
-      imgEdge,
-      { id: 'e1', source: 'n1', target: 'n2', label: 'breaks into', animated: true },
-      { id: 'e2', source: 'n2', target: 'n3', label: 'leads to', animated: true },
-      { id: 'e3', source: 'n3', target: 'n4', label: 'applies to', animated: true },
-      { id: 'e4', source: 'n4', target: 'n5', label: 'results in', animated: true },
+      { id: 'e0', source: 'img1', target: 'n1', label: 'visualize', animated: true },
+      { id: 'e1', source: 'n1', target: 'exp1', label: 'explains', animated: false },
+      { id: 'e2', source: 'n1', target: 'n2', label: 'breaks into', animated: true },
+      { id: 'e3', source: 'n2', target: 'n3', label: 'leads to', animated: true },
+      { id: 'e4', source: 'n3', target: 'ex1', label: 'for example', animated: false },
+      { id: 'e5', source: 'n3', target: 'n4', label: 'applies to', animated: true },
+      { id: 'e6', source: 'n4', target: 'n5', label: 'results in', animated: true },
     ],
   };
 };
