@@ -161,12 +161,9 @@ const VisualizationRenderer: React.FC<Props> = ({
   const isSpecialViz = visualization && ['katex', 'code', 'chart', 'markdown'].includes(visualization.type);
 
   return (
-    <div className="relative w-full h-full flex flex-row overflow-hidden rounded-[2.5rem] bg-[#020617]">
-      {/* ── Unified Storyboard Canvas (Left side) ── */}
-      <div 
-        className="relative h-full transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]"
-        style={{ width: isSpecialViz ? '62%' : '100%' }}
-      >
+    <div className="relative w-full h-full rounded-[2.5rem] bg-[#020617] overflow-hidden">
+      {/* ── Unified Storyboard Canvas (Base Layer taking exactly 100%) ── */}
+      <div className="absolute inset-0 z-0">
         <StoryboardCanvas
           nodes={canvasNodes}
           edges={canvasEdges}
@@ -176,35 +173,31 @@ const VisualizationRenderer: React.FC<Props> = ({
           stepTitles={stepTitles}
           highlightedIds={highlightedIds}
         />
-        
-        {/* Subtle right shadow fading when split screen is active */}
+        {/* Subtle right shadow fading to highlight the popup when active */}
         {isSpecialViz && (
-          <div className="absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-black/50 to-transparent pointer-events-none z-10" />
+          <div className="absolute inset-y-0 right-0 w-[50vw] bg-gradient-to-l from-[#020617]/80 via-[#020617]/30 to-transparent pointer-events-none z-10 transition-opacity duration-700" />
         )}
       </div>
 
-      {/* ── Special viz panel (Right Side) ── */}
+      {/* ── Special viz Floating Panel Popup (Right Side overlay) ── */}
       <div 
-        className="relative h-full bg-gradient-to-b from-[#0a1428] to-[#020617] border-l border-white/5 transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] z-20"
-        style={{ 
-          width: isSpecialViz ? '38%' : '0%',
-          opacity: isSpecialViz ? 1 : 0,
-        }}
+        className={`absolute right-8 top-28 bottom-32 z-20 flex flex-col transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] pointer-events-none ${
+          isSpecialViz ? 'translate-x-0 opacity-100' : 'translate-x-[50px] opacity-0'
+        }`}
+        style={{ width: '40%', maxWidth: '640px', minWidth: '420px' }}
       >
-        {/* We use an inner wrapper with fixed dimensions so content doesn't text-wrap awkwardly during the width CSS transition */}
-        <div className="absolute top-0 left-0 w-[40vw] h-full p-6 pt-16 pb-20 flex items-center justify-center">
-          <div className="absolute top-6 right-6 z-30">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400 glass-dark border border-indigo-500/30 rounded-full px-4 py-2 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
-              {isSpecialViz && { katex: '🧮 Math Execution', code: '💻 Code Implementation', chart: '📊 Data Analytics', markdown: '📝 Key Notes' }[visualization!.type]}
-            </span>
-          </div>
+        <div className="absolute -top-12 right-4 z-30 pointer-events-auto">
+          <span className="text-[10px] items-center gap-2 font-black uppercase tracking-[0.2em] text-indigo-300 glass border border-indigo-500/20 rounded-full px-5 py-2.5 shadow-2xl flex bg-[#0f172a]/80 backdrop-blur-xl">
+            <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></div>
+            {isSpecialViz && { katex: 'Math Execution', code: 'Code Implementation', chart: 'Data Analytics', markdown: 'Detailed Note' }[visualization!.type]}
+          </span>
+        </div>
           
-          <div className="w-full h-full max-h-[85vh] relative glass-panel border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col bg-[#050D1A]/80 backdrop-blur-3xl">
-             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-cyan-500/5 pointer-events-none"></div>
+        <div className="w-full flex-1 relative border border-white/10 rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col bg-[#050D1A]/50 backdrop-blur-[24px] pointer-events-auto ring-1 ring-inset ring-white/5 custom-scrollbar">
+             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-cyan-500/5 pointer-events-none border-t border-l border-white/10 rounded-3xl mix-blend-overlay"></div>
              {isSpecialViz && (visualization!.type === 'katex' || visualization!.type === 'markdown') && <MarkdownMathView content={visualization!.data as string} currentTime={currentTime} duration={duration} />}
              {isSpecialViz && visualization!.type === 'code' && <CodeView data={visualization!.data as CodeData} currentTime={currentTime} duration={duration} />}
              {isSpecialViz && visualization!.type === 'chart' && <ChartView data={visualization!.data as ChartData} />}
-          </div>
         </div>
       </div>
     </div>

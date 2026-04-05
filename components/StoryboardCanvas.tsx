@@ -36,23 +36,20 @@ interface Props {
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const CANVAS_W = 4000;
-const CANVAS_H = 3000;
-const NODE_W = 240;
-const NODE_H = 100;
-const PORT_R = 5;        // port circle radius
-const COL_GAP = 420;     // center-to-center horizontal
-const ROW_GAP = 220;     // center-to-center vertical within step
-const STEP_GAP = 140;    // extra gap between steps
-const MAX_COLS = 3;
+const CANVAS_H = 4000;
+const NODE_W = 280;
+const NODE_H = 320;
+const PORT_R = 6;        // port circle radius
+const COL_GAP = 360;     // center-to-center horizontal
+const ROW_GAP = 420;     // center-to-center vertical within step
+const STEP_GAP = 180;    // extra gap between steps
 const CX = CANVAS_W / 2;
-const START_Y = 160;
+const START_Y = 220;
 
 // Per-step accent colors
 const ACCENTS = ['#818cf8', '#34d399', '#fb7185', '#fbbf24', '#60a5fa', '#a78bfa'];
 
 // ─── Layout ──────────────────────────────────────────────────────────────────
-
-// ─── Topological DAG Layout Engine ─────────────────────────────────────────────
 
 export interface LayoutData {
   posMap: Record<string, { x: number; y: number }>;
@@ -79,77 +76,122 @@ export function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): La
     const stepNodeIds = new Set(stepNodes.map(n => n.id));
     const stepEdges = edges.filter(e => stepNodeIds.has(e.from) && stepNodeIds.has(e.to));
 
-    // Calculate In-Degree
+    // Calculate In-Degree and Out-Degree
     const inDegree = new Map<string, number>();
+    const outDegree = new Map<string, number>();
     const adj = new Map<string, string[]>();
-    stepNodes.forEach(n => { inDegree.set(n.id, 0); adj.set(n.id, []); });
+    
+    stepNodes.forEach(n => { 
+      inDegree.set(n.id, 0); 
+      outDegree.set(n.id, 0);
+      adj.set(n.id, []); 
+    });
 
     stepEdges.forEach(e => {
       adj.get(e.from)?.push(e.to);
       inDegree.set(e.to, (inDegree.get(e.to) || 0) + 1);
+      outDegree.set(e.from, (outDegree.get(e.from) || 0) + 1);
     });
 
-    // Find root nodes (inDegree 0)
-    let roots = stepNodes.filter(n => inDegree.get(n.id) === 0);
-    
-    // Prioritize Image Nodes to be at the top level
-    const imgNodes = stepNodes.filter(n => n.nodeType === 'image');
-    if (imgNodes.length > 0) {
-      roots = [...imgNodes];
-      // Reset inDegree for nodes pointing from image to others to ensure image is at Top Level
-      stepEdges.forEach(e => {
-        if (imgNodes.some(i => i.id === e.from)) inDegree.set(e.to, 0);
-      });
-    }
+    // ── INTELLIGENT DIAGRAM TYPE DETECTION ──
+    // Detect Cycle: Every node exactly 1 in and 1 out, and exactly num_nodes edges
+    const isCycle = stepNodes.length > 2 && 
+                    stepEdges.length === stepNodes.length && 
+                    Array.from(inDegree.values()).every(v => v === 1) &&
+                    Array.from(outDegree.values()).every(v => v === 1);
 
-    if (roots.length === 0 && stepNodes.length > 0) roots = [stepNodes[0]];
-
-    // BFS to assign Topological Levels (Tree Drop-Down logic)
-    const levels = new Map<string, number>();
-    roots.forEach(r => levels.set(r.id, 0));
-    
-    // We use a topological approach: push max distance from roots
-    const queue = [...roots];
-    while (queue.length > 0) {
-      const curr = queue.shift()!;
-      const currLvl = levels.get(curr.id)!;
+    if (isCycle) {
+      // Circle Layout
+      const radius = 220 + stepNodes.length * 30; // dynamic radius based on node count
+      // Find a start node (e.g. earliest indexInStep)
+      const startNode = stepNodes.slice().sort((a, b) => a.indexInStep - b.indexInStep)[0];
       
-      adj.get(curr.id)?.forEach(child => {
-         const existing = levels.get(child) || -1;
-         if (currLvl + 1 > existing) {
-            levels.set(child, currLvl + 1);
-            if (!queue.includes(stepNodes.find(n => n.id === child)!)) {
-               queue.push(stepNodes.find(n => n.id === child)!);
-            }
-         }
-      });
-    }
-
-    // Group Topologically and compute Coordinates
-    const nodesByLevel = new Map<number, CanvasNode[]>();
-    let maxLevel = 0;
-    stepNodes.forEach(n => {
-      const lvl = levels.get(n.id) || 0;
-      maxLevel = Math.max(maxLevel, lvl);
-      if (!nodesByLevel.has(lvl)) nodesByLevel.set(lvl, []);
-      nodesByLevel.get(lvl)!.push(n);
-    });
-
-    for (let L = 0; L <= maxLevel; L++) {
-      const rowNodes = nodesByLevel.get(L) || [];
-      const rowW = (rowNodes.length - 1) * COL_GAP;
-      const startX = CX - rowW / 2;
+      let currId = startNode.id;
+      const cycleOrdered: CanvasNode[] = [];
+      const visited = new Set<string>();
       
-      rowNodes.forEach((n, idx) => {
+      while (!visited.has(currId) && cycleOrdered.length < stepNodes.length) {
+        visited.add(currId);
+        cycleOrdered.push(stepNodes.find(n => n.id === currId)!);
+        const nextId = adj.get(currId)?.[0];
+        if (!nextId) break;
+        currId = nextId;
+      }
+      
+      cycleOrdered.forEach((n, idx) => {
+        // -PI/2 so first node points Up (12 o'clock)
+        const angle = -Math.PI / 2 + (idx * 2 * Math.PI) / cycleOrdered.length;
         posMap[n.id] = {
-          x: n.nodeType === 'emoji' ? CX - 100 + (idx * 200) : startX + idx * COL_GAP, // Keep emojis from overlapping main flow
-          y: currentY + L * ROW_GAP
+          x: CX + Math.cos(angle) * (radius * 1.2), // wider ellipse look
+          y: currentY + radius + Math.sin(angle) * radius
         };
       });
-    }
+      
+      currentY += (radius * 2) + STEP_GAP + NODE_H;
+    } 
+    else {
+      // ── Tree / Hierarchy / Flowchart (DAG Layout) ──
+      
+      // Find root nodes (inDegree 0)
+      let roots = stepNodes.filter(n => inDegree.get(n.id) === 0);
+      
+      if (roots.length === 0 && stepNodes.length > 0) {
+         // Fallback if graph is weirdly cyclic but not a perfect cycle
+         roots = [stepNodes.slice().sort((a,b) => a.indexInStep - b.indexInStep)[0]];
+      }
 
-    // Advance Y coordinate for the next Step
-    currentY += (maxLevel + 1) * ROW_GAP + STEP_GAP;
+      // BFS to assign Topological Levels (Tree Drop-Down logic)
+      const levels = new Map<string, number>();
+      roots.forEach(r => levels.set(r.id, 0));
+      
+      const queue = [...roots];
+      while (queue.length > 0) {
+        const curr = queue.shift()!;
+        const currLvl = levels.get(curr.id)!;
+        
+        adj.get(curr.id)?.forEach(child => {
+           const existing = levels.get(child) || -1;
+           if (currLvl + 1 > existing) {
+              levels.set(child, currLvl + 1);
+              if (!queue.includes(stepNodes.find(n => n.id === child)!)) {
+                 queue.push(stepNodes.find(n => n.id === child)!);
+              }
+           }
+        });
+      }
+
+      // Handle unreached/floating nodes (give them level 0)
+      stepNodes.forEach(n => {
+        if (!levels.has(n.id)) levels.set(n.id, 0);
+      });
+
+      // Group Topologically and compute Coordinates
+      const nodesByLevel = new Map<number, CanvasNode[]>();
+      let maxLevel = 0;
+      stepNodes.forEach(n => {
+        const lvl = levels.get(n.id) || 0;
+        maxLevel = Math.max(maxLevel, lvl);
+        if (!nodesByLevel.has(lvl)) nodesByLevel.set(lvl, []);
+        nodesByLevel.get(lvl)!.push(n);
+      });
+
+      for (let L = 0; L <= maxLevel; L++) {
+        const rowNodes = nodesByLevel.get(L) || [];
+        // Small screen logical wrap (max columns per level constraint isn't strict here since canvas is infinitely zoomable, 
+        // but we space them evenly relative to center).
+        const rowW = (rowNodes.length - 1) * COL_GAP;
+        const startX = CX - rowW / 2;
+        
+        rowNodes.forEach((n, idx) => {
+          posMap[n.id] = {
+            x: n.nodeType === 'emoji' ? CX - 120 + (idx * 240) : startX + idx * COL_GAP,
+            y: currentY + L * ROW_GAP
+          };
+        });
+      }
+
+      currentY += (maxLevel + 1) * ROW_GAP + STEP_GAP;
+    }
   }
 
   return { posMap, stepStart };
@@ -186,7 +228,7 @@ function bezierPath(fx: number, fy: number, tx: number, ty: number): string {
 // Renders a visual image inside the canvas. Uses Wikipedia thumbnail API for
 // real photos, with Pollinations AI as fallback. Both work as img src (no CORS).
 
-interface ImageNodeProps {
+interface VisualNodeCardProps {
   node: CanvasNode;
   pos: { x: number; y: number };
   isRev: boolean;
@@ -195,20 +237,17 @@ interface ImageNodeProps {
   accent: string;
 }
 
-const ImageNode: React.FC<ImageNodeProps> = ({ node, pos, isRev, isCur, isPast, accent }) => {
-  // Safe string encoding for URL
+const VisualNodeCard: React.FC<VisualNodeCardProps> = ({ node, pos, isRev, isCur, isPast, accent }) => {
   const safePrompt = encodeURIComponent(
     (node.label ? node.label.replace(/[^a-zA-Z0-9\s]/g, '') : 'educational diagram') + ' detailed illustration'
   );
   
-  // Use a simpler Pollinations URL without model/nologo params which sometimes break or timeout
   const pollinationsUrl = `https://image.pollinations.ai/prompt/${safePrompt}?width=800&height=450&seed=${node.id.replace(/[^0-9]/g, '').slice(0,6) || '42'}`;
   
   const [imgSrc, setImgSrc] = useState<string>(node.imageUrl || pollinationsUrl);
   const [loaded, setLoaded] = useState(false);
   const [hasError, setHasError] = useState(false);
 
-  // Try to get a better image from Wikipedia on mount
   useEffect(() => {
     const fetchWiki = async () => {
       if (node.imageUrl && node.imageUrl.length > 5 && !node.imageUrl.includes('pollinations')) return;
@@ -237,28 +276,27 @@ const ImageNode: React.FC<ImageNodeProps> = ({ node, pos, isRev, isCur, isPast, 
   return (
     <div style={{
       position: 'absolute',
-      left: pos.x - 200,
-      top: pos.y - 140,
-      width: 400,
-      opacity: isRev ? (isCur ? 1 : isPast ? 0.45 : 0.75) : 0,
-      transform: isRev ? `scale(${isCur ? 1.04 : 1}) translateY(0)` : 'scale(0.84) translateY(28px)',
+      left: pos.x - NODE_W / 2,
+      top: pos.y - NODE_H / 2,
+      width: NODE_W,
+      height: NODE_H,
+      opacity: isRev ? (isCur ? 1 : isPast ? 0.65 : 0.85) : 0,
+      transform: isRev ? `scale(${isCur ? 1.05 : 1}) translateY(0)` : 'scale(0.85) translateY(28px)',
       transition: 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
-      zIndex: isCur ? 15 : 5,
+      zIndex: isCur ? 15 : node.nodeType === 'image' ? 5 : 2,
       pointerEvents: 'none',
+      background: isCur ? `linear-gradient(180deg, ${accent}22 0%, rgba(5,13,26,0.98) 100%)` : isPast ? 'rgba(8,16,30,0.85)' : 'rgba(10,20,40,0.95)',
+      borderRadius: 20,
+      border: `1.5px solid ${isCur ? `${accent}88` : isPast ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.1)'}`,
+      borderTop: `3px solid ${isCur ? accent : isPast ? `${accent}44` : `${accent}66`}`,
+      boxShadow: isCur ? `0 0 24px ${accent}40, 0 16px 40px rgba(0,0,0,0.8)` : '0 6px 20px rgba(0,0,0,0.6)',
+      backdropFilter: 'blur(24px)',
+      overflow: 'hidden',
+      display: 'flex',
+      flexDirection: 'column',
     }}>
-      <div style={{
-        width: '100%',
-        aspectRatio: '16/9',
-        borderRadius: 20,
-        overflow: 'hidden',
-        background: 'rgba(10, 20, 40, 0.9)',
-        border: `2.5px solid ${isCur ? accent : isPast ? accent + '44' : 'rgba(255,255,255,0.12)'}`,
-        boxShadow: isCur
-          ? `0 0 40px ${accent}50, 0 12px 40px rgba(0,0,0,0.7), inset 0 0 20px ${accent}10`
-          : '0 4px 20px rgba(0,0,0,0.5)',
-        position: 'relative',
-      }}>
-        {/* Loading / Error skeleton */}
+      {/* ── Visual Context Image (Top half) ── */}
+      <div style={{ width: '100%', height: '52%', position: 'relative', flexShrink: 0, backgroundColor: 'rgba(0,0,0,0.4)', overflow: 'hidden' }}>
         {(!loaded || hasError) && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -267,14 +305,14 @@ const ImageNode: React.FC<ImageNodeProps> = ({ node, pos, isRev, isCur, isPast, 
             animation: hasError ? 'none' : 'shimmer 1.5s infinite',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>
-            <div style={{ color: accent, fontSize: 28, opacity: 0.5 }}>{hasError ? '🖼️' : '🖼️'}</div>
+            <div style={{ color: accent, fontSize: 32, opacity: 0.5 }}>{hasError ? '🖼️' : '🖼️'}</div>
           </div>
         )}
         {!hasError && (
           <img
             src={imgSrc}
             alt={node.label}
-            style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: loaded ? 1 : 0, transition: 'opacity 0.4s ease' }}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: loaded ? 1 : 0, transition: 'opacity 0.6s ease' }}
             onLoad={() => setLoaded(true)}
             onError={() => {
               if (imgSrc.includes('pollinations') && !imgSrc.includes('fallback=1')) {
@@ -285,25 +323,55 @@ const ImageNode: React.FC<ImageNodeProps> = ({ node, pos, isRev, isCur, isPast, 
             }}
           />
         )}
-        {/* Label overlay */}
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          background: 'linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)',
-          padding: '10px 14px 8px',
-          color: '#f8fafc', fontSize: 11.5, fontWeight: 700,
-          fontFamily: 'Inter, sans-serif', letterSpacing: '-0.01em',
-        }}>
-          📸 {node.label}
-        </div>
-        {/* Active glow border */}
-        {isCur && (
-          <div style={{
-            position: 'absolute', inset: 0, borderRadius: 20,
-            boxShadow: `inset 0 0 0 2px ${accent}80`,
-            pointerEvents: 'none',
-          }} />
-        )}
+        {/* Soft blend edge */}
+        <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 40, background: 'linear-gradient(to top, rgba(0,0,0,0.6), transparent)', pointerEvents: 'none' }} />
       </div>
+
+      {/* ── Metadata & Text (Bottom half) ── */}
+      <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', flexGrow: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{
+          color: isCur ? '#f8fafc' : isPast ? '#94a3b8' : '#e2e8f0',
+          fontSize: 14,
+          fontWeight: 800,
+          lineHeight: 1.3,
+          textAlign: 'center',
+          fontFamily: 'Inter, system-ui, sans-serif',
+          letterSpacing: '-0.01em',
+          wordBreak: 'break-word',
+          textShadow: isCur ? '0 2px 4px rgba(0,0,0,0.5)' : 'none',
+        }}>
+          {node.label}
+        </div>
+        
+        {node.detail && (
+          <div style={{
+            marginTop: 8,
+            color: isCur ? '#cbd5e1' : isPast ? '#475569' : '#64748b',
+            fontSize: 11.5,
+            fontWeight: 500,
+            lineHeight: 1.45,
+            textAlign: 'center',
+            fontFamily: 'Inter, system-ui, sans-serif',
+            opacity: isRev ? 1 : 0,
+            transition: 'opacity 0.8s ease',
+          }}>
+             {node.detail}
+          </div>
+        )}
+        
+        {isCur && (
+           <div style={{
+             position: 'absolute', bottom: 0, left: 0, right: 0,
+             height: 3, borderRadius: 3,
+             background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
+             animation: 'shimmer 2s infinite',
+           }} />
+         )}
+      </div>
+
+      {/* ── Ports ── */}
+      <div style={{ position: 'absolute', top: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `1.5px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
+      <div style={{ position: 'absolute', bottom: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `1.5px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
     </div>
   );
 };
@@ -590,9 +658,9 @@ const StoryboardCanvas: React.FC<Props> = ({
             );
           }
 
-          // ── Image node ──
+          // ── Visual / Image Node ──
           if (node.nodeType === 'image') {
-            return <ImageNode key={node.id} node={node} pos={pos} isRev={isRev} isCur={isCur} isPast={isPast} accent={accent} />;
+            return <VisualNodeCard key={node.id} node={node} pos={pos} isRev={isRev} isCur={isCur} isPast={isPast} accent={accent} />;
           }
 
           // ── Step section label (renders once per step, above first node in step) ──
@@ -625,132 +693,47 @@ const StoryboardCanvas: React.FC<Props> = ({
                 </div>
               )}
 
-              {/* Node wrapper */}
-              <div style={{
-                position: 'absolute',
-                left: pos.x - NODE_W / 2,
-                top: pos.y - NODE_H / 2,
-                width: NODE_W,
-                opacity: isRev ? (isCur ? 1 : isPast ? 0.55 : 0.82) : 0,
-                transform: isRev
-                  ? `translateY(0) scale(${isCur ? 1.04 : 1})`
-                  : 'translateY(24px) scale(0.88)',
-                transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
-                zIndex: isCur ? 10 : 1,
-                pointerEvents: 'none',
-              }}>
-                {/* Top port circle */}
+              {node.nodeType === 'decision' ? (
                 <div style={{
-                  position: 'absolute', top: -PORT_R, left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
-                  background: '#050d1a',
-                  border: `1.5px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`,
-                  transition: 'border-color 0.5s ease',
-                  zIndex: 2,
-                }} />
+                  position: 'absolute',
+                  left: pos.x - NODE_W / 2,
+                  top: pos.y - NODE_H / 2,
+                  width: NODE_W,
+                  opacity: isRev ? (isCur ? 1 : isPast ? 0.55 : 0.82) : 0,
+                  transform: isRev ? `translateY(0) scale(${isCur ? 1.04 : 1})` : 'translateY(24px) scale(0.88)',
+                  transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
+                  zIndex: isCur ? 10 : 1,
+                  pointerEvents: 'none',
+                }}>
+                  {/* Top port circle */}
+                  <div style={{ position: 'absolute', top: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `1.5px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
+                  
+                  <div style={{ position: 'relative', width: NODE_W, height: NODE_H, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {/* Diamond background */}
+                    <div style={{
+                      position: 'absolute',
+                      width: NODE_H * 1.2, height: NODE_H * 1.2,
+                      background: isCur ? `linear-gradient(135deg, ${accent}33 0%, rgba(8,16,32,0.95) 100%)` : isPast ? 'rgba(8,16,30,0.85)' : 'rgba(10,20,40,0.95)',
+                      border: `1.5px solid ${isCur ? accent : isPast ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
+                      transform: 'rotate(45deg)',
+                      boxShadow: isCur ? `0 0 20px ${accent}40, 0 8px 32px rgba(0,0,0,0.6)` : '0 4px 16px rgba(0,0,0,0.5)',
+                      borderRadius: 8,
+                      transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
+                    }} />
+                    {/* Content */}
+                    <div style={{ position: 'relative', zIndex: 10, textAlign: 'center', padding: 12 }}>
+                      <div style={{ color: isCur ? '#f8fafc' : isPast ? '#64748b' : '#94a3b8', fontSize: 11.5, fontWeight: 800, lineHeight: 1.3, letterSpacing: '0.02em', wordBreak: 'break-word' }}>
+                        {node.label}
+                      </div>
+                    </div>
+                  </div>
 
-                  {/* Card / Shape renderer */}
-                  {node.nodeType === 'decision' ? (
-                     <div style={{ position: 'relative', width: NODE_W, height: NODE_H, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                       {/* Diamond background */}
-                       <div style={{
-                         position: 'absolute',
-                         width: NODE_H * 1.2, height: NODE_H * 1.2,
-                         background: isCur ? `linear-gradient(135deg, ${accent}33 0%, rgba(8,16,32,0.95) 100%)` : isPast ? 'rgba(8,16,30,0.85)' : 'rgba(10,20,40,0.95)',
-                         border: `1.5px solid ${isCur ? accent : isPast ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
-                         transform: 'rotate(45deg)',
-                         boxShadow: isCur ? `0 0 20px ${accent}40, 0 8px 32px rgba(0,0,0,0.6)` : '0 4px 16px rgba(0,0,0,0.5)',
-                         borderRadius: 8,
-                         transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
-                       }} />
-                       {/* Content (Not rotated) */}
-                       <div style={{ position: 'relative', zIndex: 10, textAlign: 'center', padding: 12 }}>
-                         <div style={{ color: isCur ? '#f8fafc' : isPast ? '#64748b' : '#94a3b8', fontSize: 11.5, fontWeight: 800, lineHeight: 1.3, letterSpacing: '0.02em', wordBreak: 'break-word' }}>
-                           {node.label}
-                         </div>
-                       </div>
-                     </div>
-                  ) : (
-                     <div style={{
-                       background: isCur
-                         ? `linear-gradient(180deg, ${accent}18 0%, rgba(8,16,32,0.96) 100%)`
-                         : isPast
-                         ? 'rgba(8, 16, 30, 0.82)'
-                         : 'rgba(10, 20, 40, 0.90)',
-                       borderRadius: (node.nodeType === 'input' || node.nodeType === 'output') ? 999 : 14,
-                       border: `1px solid ${isCur ? `${accent}55` : isPast ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.09)'}`,
-                       borderTop: `2.5px solid ${isCur ? accent : isPast ? `${accent}35` : `${accent}55`}`,
-                       boxShadow: isCur
-                         ? `0 0 0 1px ${accent}20, 0 16px 48px ${accent}20, 0 4px 16px rgba(0,0,0,0.5)`
-                         : `0 2px 12px rgba(0,0,0,0.4)`,
-                       backdropFilter: 'blur(16px)',
-                       transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
-                       height: NODE_H,
-                       width: '100%',
-                       display: 'flex',
-                       flexDirection: 'column',
-                       alignItems: 'center',
-                       justifyContent: 'center',
-                       padding: '12px 16px',
-                       overflow: 'hidden',
-                       position: 'relative',
-                     }}>
-                       {/* Label */}
-                       <div style={{
-                         color: isCur ? '#f8fafc' : isPast ? '#64748b' : '#94a3b8',
-                         fontSize: 12.5,
-                         fontWeight: 700,
-                         lineHeight: 1.3,
-                         textAlign: 'center',
-                         fontFamily: 'Inter, system-ui, sans-serif',
-                         transition: 'color 0.5s ease',
-                         letterSpacing: '-0.01em',
-                         wordBreak: 'break-word',
-                       }}>
-                         {node.label}
-                       </div>
-     
-                       {/* Detail */}
-                       {node.detail && (
-                         <div style={{
-                           marginTop: 6,
-                           color: isCur ? '#94a3b8' : isPast ? '#475569' : '#64748b',
-                           fontSize: 10.5,
-                           fontWeight: 500,
-                           lineHeight: 1.4,
-                           textAlign: 'center',
-                           fontFamily: 'Inter, system-ui, sans-serif',
-                           transition: 'opacity 0.8s ease',
-                           opacity: isRev ? 1 : 0,
-                         }}>
-                           {node.detail}
-                         </div>
-                       )}
-     
-                       {/* Active shimmer line */}
-                       {isCur && (
-                         <div style={{
-                           position: 'absolute', bottom: 0, left: 0, right: 0,
-                           height: 2, borderRadius: 2,
-                           background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
-                           animation: 'shimmer 2s infinite',
-                         }} />
-                       )}
-                     </div>
-                  )}
-
-                {/* Bottom port circle */}
-                <div style={{
-                  position: 'absolute', bottom: -PORT_R, left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%',
-                  background: '#050d1a',
-                  border: `1.5px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`,
-                  transition: 'border-color 0.5s ease',
-                  zIndex: 2,
-                }} />
-              </div>
+                  {/* Bottom port circle */}
+                  <div style={{ position: 'absolute', bottom: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `1.5px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
+                </div>
+              ) : (
+                <VisualNodeCard node={node} pos={pos} isRev={isRev} isCur={isCur} isPast={isPast} accent={accent} />
+              )}
             </React.Fragment>
           );
         })}

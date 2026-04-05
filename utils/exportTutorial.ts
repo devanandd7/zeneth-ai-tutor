@@ -1,14 +1,14 @@
 import { TutorialStep, FlowData } from '../types';
 
 // ─── Layout constants (mirrors StoryboardCanvas logic) ────────────────────────
-const NW = 200;     // node width
-const NH = 64;      // node height
-const COL_GAP = 280;
-const ROW_GAP = 150;
-const STEP_GAP = 110;
+const NW = 280;     // node width
+const NH = 320;      // node height
+const COL_GAP = 360;
+const ROW_GAP = 420;
+const STEP_GAP = 180;
 const MAX_COLS = 3;
 const CX = 900;     // canvas center X
-const START_Y = 80;
+const START_Y = 160;
 const ACCENTS = ['#818cf8', '#34d399', '#fb7185', '#fbbf24', '#60a5fa', '#a78bfa'];
 
 interface LayoutNode {
@@ -20,6 +20,7 @@ interface LayoutNode {
   accent: string;
   nodeType?: string;
   imageUrl?: string;
+  detail?: string;
 }
 
 function buildLayout(steps: TutorialStep[]): { nodes: LayoutNode[]; edges: { from: string; to: string; label?: string; si: number }[]; totalH: number } {
@@ -84,7 +85,8 @@ function buildLayout(steps: TutorialStep[]): { nodes: LayoutNode[]; edges: { fro
         stepIndex: si, 
         accent,
         nodeType: n.nodeType,
-        imageUrl: n.imageUrl
+        imageUrl: n.imageUrl,
+        detail: n.detail
       });
       posMap.set(uniqueId, { x: nx, y: ny });
     });
@@ -98,20 +100,20 @@ function buildLayout(steps: TutorialStep[]): { nodes: LayoutNode[]; edges: { fro
     y += rows * ROW_GAP + STEP_GAP;
   });
 
-  return { nodes: layoutNodes, edges: layoutEdges, totalH: y + 60 };
+  return { nodes: layoutNodes, edges: layoutEdges, totalH: y + 80 };
 }
 
 function svgBezier(fx: number, fy: number, tx: number, ty: number): string {
   const dx = Math.abs(tx - fx);
   const dy = Math.abs(ty - fy);
   if (dy >= dx) {
-    const sy = fy + NH / 2 + 4;
-    const ey = ty - NH / 2 - 4;
+    const sy = fy + NH / 2 + 6;
+    const ey = ty - NH / 2 - 6;
     const mid = (sy + ey) / 2;
     return `M ${fx},${sy} C ${fx},${mid} ${tx},${mid} ${tx},${ey}`;
   } else {
-    const sx = fx + NW / 2 + 4;
-    const ex = tx - NW / 2 - 4;
+    const sx = fx + NW / 2 + 6;
+    const ex = tx - NW / 2 - 6;
     const mid = (sx + ex) / 2;
     return `M ${sx},${fy} C ${mid},${fy} ${mid},${ty} ${ex},${ty}`;
   }
@@ -131,8 +133,8 @@ function buildSVG(steps: TutorialStep[]): { svg: string; height: number } {
     const lx = (fp.x + tp.x) / 2;
     const ly = (fp.y + tp.y) / 2 - 10;
     return `
-      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.5" stroke-opacity="0.65" stroke-linecap="round"/>
-      ${e.label ? `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="11" font-weight="700" fill="${color}" font-family="Inter,sans-serif" opacity="0.85">${e.label}</text>` : ''}
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-opacity="0.65" stroke-linecap="round"/>
+      ${e.label ? `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="12" font-weight="800" fill="${color}" font-family="Inter,sans-serif" opacity="0.95">${e.label}</text>` : ''}
     `;
   }).join('');
 
@@ -142,64 +144,92 @@ function buildSVG(steps: TutorialStep[]): { svg: string; height: number } {
       const emojiChar = n.label.split(' ')[0] || '✨';
       const labelText = n.label.split(' ').slice(1).join(' ');
       return `
-        <text x="${n.x}" y="${n.y - 10}" text-anchor="middle" font-size="32">${emojiChar}</text>
-        <text x="${n.x}" y="${n.y + 16}" text-anchor="middle" font-size="10" font-weight="700" fill="#64748b" font-family="Inter,sans-serif">${labelText}</text>
+        <text x="${n.x}" y="${n.y - 10}" text-anchor="middle" font-size="42">${emojiChar}</text>
+        <text x="${n.x}" y="${n.y + 24}" text-anchor="middle" font-size="12" font-weight="800" fill="#cbd5e1" font-family="Inter,sans-serif">${labelText}</text>
       `;
     }
 
     const bx = n.x - NW / 2;
     const by = n.y - NH / 2;
-    // Truncate long labels
+    
+    // Fallback Image
+    const safePrompt = encodeURIComponent((n.label ? n.label.replace(/[^a-zA-Z0-9\s]/g, '') : 'educational diagram') + ' detailed illustration');
+    const pollinationsUrl = `https://image.pollinations.ai/prompt/${safePrompt}?width=800&height=450&nologo=true`;
+    const finalImg = n.imageUrl || pollinationsUrl;
+
+    const imgH = 160; // top half of Node
+    const ix = bx;
+    const iy = by;
+    
+    // Label wrapping
     const maxChars = 28;
-    const lines: string[] = [];
+    const labelLines: string[] = [];
     const words = n.label.split(' ');
     let cur = '';
     words.forEach(w => {
-      if ((cur + ' ' + w).trim().length > maxChars) { lines.push(cur.trim()); cur = w; }
+      if ((cur + ' ' + w).trim().length > maxChars) { labelLines.push(cur.trim()); cur = w; }
       else cur = (cur + ' ' + w).trim();
     });
-    if (cur) lines.push(cur);
-    const lineH = 16;
-    const totalTH = lines.length * lineH;
-    const textStartY = n.y - totalTH / 2 + lineH / 2;
-    const isImage = n.nodeType === 'image';
-    if (isImage && n.imageUrl) {
-      const imgW = 220;
-      const imgH = 124; // 16:9
-      const ix = n.x - imgW / 2;
-      const iy = n.y - imgH / 2;
-      return `
-        <rect x="${ix}" y="${iy}" width="${imgW}" height="${imgH}" rx="12" ry="12" fill="#0a1428" stroke="${n.accent}" stroke-width="2" filter="url(#shadow)"/>
-        <clipPath id="clip-${n.id}">
-          <rect x="${ix}" y="${iy}" width="${imgW}" height="${imgH}" rx="12" ry="12"/>
-        </clipPath>
-        <image x="${ix}" y="${iy}" width="${imgW}" height="${imgH}" href="${n.imageUrl}" preserveAspectRatio="xMidYMid slice" clip-path="url(#clip-${n.id})"/>
-        <rect x="${ix}" y="${iy + imgH - 24}" width="${imgW}" height="24" rx="0" fill="rgba(0,0,0,0.6)" clip-path="url(#clip-${n.id})"/>
-        <text x="${n.x}" y="${iy + imgH - 8}" text-anchor="middle" font-size="9" font-weight="700" fill="#fff" font-family="Inter,sans-serif">${n.label}</text>
-      `;
+    if (cur) labelLines.push(cur);
+
+    const detailChars = 40;
+    const detailLines: string[] = [];
+    if (n.detail) {
+      const dwords = n.detail.split(' ');
+      let dcur = '';
+      dwords.forEach(w => {
+        if ((dcur + ' ' + w).trim().length > detailChars) { detailLines.push(dcur.trim()); dcur = w; }
+        else dcur = (dcur + ' ' + w).trim();
+      });
+      if (dcur) detailLines.push(dcur);
     }
+    
+    const textStartY = by + imgH + 30;
 
     return `
-      <rect x="${bx}" y="${by}" width="${NW}" height="${NH}" rx="10" ry="10"
-        fill="#0a1428" stroke="${n.accent}" stroke-width="2" stroke-opacity="0.7"
+      <!-- Base Card with Glow -->
+      <rect x="${bx}" y="${by}" width="${NW}" height="${NH}" rx="20" ry="20"
+        fill="#050d1a" stroke="${n.accent}88" stroke-width="2"
         filter="url(#shadow)"/>
-      <rect x="${bx}" y="${by}" width="${NW}" height="3" rx="1.5" fill="${n.accent}" opacity="0.9"/>
-      <circle cx="${n.x}" cy="${by}" r="4" fill="#050d1a" stroke="${n.accent}" stroke-width="1.5"/>
-      <circle cx="${n.x}" cy="${by + NH}" r="4" fill="#050d1a" stroke="${n.accent}" stroke-width="1.5"/>
-      ${lines.map((ln, i) => `<text x="${n.x}" y="${textStartY + i * lineH + 2}" text-anchor="middle" font-size="11.5" font-weight="600" fill="#e2e8f0" font-family="Inter,sans-serif">${ln}</text>`).join('')}
+      <rect x="${bx}" y="${by}" width="${NW}" height="4" rx="2" fill="${n.accent}"/>
+      
+      <!-- Inside image wrapper -->
+      <clipPath id="clip-${n.id}">
+        <rect x="${ix}" y="${iy}" width="${NW}" height="${imgH}" rx="20" ry="20"/>
+      </clipPath>
+      <rect x="${ix}" y="${iy}" width="${NW}" height="${imgH}" fill="rgba(0,0,0,0.4)" clip-path="url(#clip-${n.id})"/>
+      <image x="${ix}" y="${iy}" width="${NW}" height="${imgH}" href="${finalImg}" preserveAspectRatio="xMidYMid slice" clip-path="url(#clip-${n.id})"/>
+      
+      <!-- Gradient blend bottom of image -->
+      <path d="M ${ix} ${iy + imgH - 40} L ${ix + NW} ${iy + imgH - 40} L ${ix + NW} ${iy + imgH} L ${ix} ${iy + imgH} Z" fill="url(#img-blend)" clip-path="url(#clip-${n.id})"/>
+      
+      <!-- Label -->
+      ${labelLines.map((ln, i) => `<text x="${n.x}" y="${textStartY + i * 20}" text-anchor="middle" font-size="14.5" font-weight="800" fill="#f8fafc" font-family="Inter,system-ui,sans-serif">${ln}</text>`).join('')}
+      
+      <!-- Detail -->
+      ${detailLines.map((ln, i) => `<text x="${n.x}" y="${textStartY + labelLines.length * 20 + 8 + i * 16}" text-anchor="middle" font-size="11.5" font-weight="500" fill="#cbd5e1" font-family="Inter,system-ui,sans-serif" opacity="0.8">${ln}</text>`).join('')}
+
+      <!-- Ports -->
+      <circle cx="${n.x}" cy="${by}" r="6" fill="#050d1a" stroke="${n.accent}" stroke-width="2"/>
+      <circle cx="${n.x}" cy="${by + NH}" r="6" fill="#050d1a" stroke="${n.accent}" stroke-width="2"/>
     `;
   }).join('');
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${totalH}" width="${W}" height="${totalH}">
   <defs>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="rgba(0,0,0,0.5)"/>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="12" flood-color="rgba(0,0,0,0.6)"/>
+      <feDropShadow dx="0" dy="0" stdDeviation="20" flood-color="rgba(100,100,250,0.1)"/>
     </filter>
     <pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse">
-      <circle cx="14" cy="14" r="1" fill="rgba(148,163,184,0.2)"/>
+      <circle cx="14" cy="14" r="1.5" fill="rgba(148,163,184,0.15)"/>
     </pattern>
+    <linearGradient id="img-blend" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(5,13,26,0)" />
+      <stop offset="100%" stop-color="#050d1a" />
+    </linearGradient>
   </defs>
-  <rect width="${W}" height="${totalH}" fill="#050d1a"/>
+  <rect width="${W}" height="${totalH}" fill="#0a1220"/>
   <rect width="${W}" height="${totalH}" fill="url(#dots)"/>
   ${edgeSVG}
   ${nodeSVG}
