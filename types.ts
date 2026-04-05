@@ -15,6 +15,8 @@ export interface DiagramElement {
   x: number;
   y: number;
   rotation?: number;
+  imageUrl?: string;
+  imageType?: 'generated' | 'search' | 'local';
 }
 
 export interface TimelineEvent {
@@ -27,7 +29,14 @@ export interface TimelineEvent {
 
 // ─── Rich Visualization Types ────────────────────────────────────────────────
 
-export type VisualizationType = 'mermaid' | 'katex' | 'code' | 'chart' | 'flow' | 'emoji' | 'markdown';
+export type VisualizationType = 'mermaid' | 'katex' | 'code' | 'chart' | 'emoji' | 'markdown' | 'flow' | 'comparison';
+
+export type TopicType = 'math' | 'code' | 'history' | 'comparison' | 'concept';
+
+export interface ChatMessage {
+  role: 'user' | 'ai';
+  text: string;
+}
 
 export interface ChartData {
   chartType: 'bar' | 'line' | 'pie' | 'area';
@@ -40,14 +49,20 @@ export interface CodeData {
   language: string;
   code: string;
   title?: string;
+  caption?: string;
 }
 
 export interface FlowNode {
   id: string;
   label: string;
+  detail?: string;
   x?: number;
   y?: number;
   type?: string;
+  nodeType?: 'input' | 'process' | 'decision' | 'output' | 'data' | string;
+  color?: string;
+  imageUrl?: string;
+  imageType?: 'generated' | 'search' | 'local';
 }
 
 export interface FlowEdge {
@@ -55,6 +70,7 @@ export interface FlowEdge {
   source: string;
   target: string;
   label?: string;
+  animated?: boolean;
 }
 
 export interface FlowData {
@@ -66,6 +82,7 @@ export interface Visualization {
   type: VisualizationType;
   /** mermaid string | katex string | CodeData | ChartData | FlowData | markdown string */
   data: string | ChartData | CodeData | FlowData;
+  flowData?: FlowData;
 }
 
 // ─── Core Tutorial Step ──────────────────────────────────────────────────────
@@ -75,6 +92,7 @@ export interface TutorialStep {
   narrative: string;
   duration: number;
   timeline: TimelineEvent[];
+  audioUrl?: string;
   visualization?: Visualization;
 }
 

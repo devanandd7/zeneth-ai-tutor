@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { askTutorWithVisuals } from '../services/groqService';
-import { DiagramElement } from '../types';
+import { TutorialStep } from '../types';
 
 interface Props {
   context: string;
   onPause: () => void;
-  onVisualUpdate: (visuals: DiagramElement[], text: string) => void;
+  onNewStep: (step: TutorialStep) => void;
 }
 
-const AIChat: React.FC<Props> = ({ context, onPause, onVisualUpdate }) => {
+const AIChat: React.FC<Props> = ({ context, onPause, onNewStep }) => {
   const [query, setQuery] = useState('');
   const [messages, setMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
   const [loading, setLoading] = useState(false);
@@ -23,10 +23,13 @@ const AIChat: React.FC<Props> = ({ context, onPause, onVisualUpdate }) => {
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
     setLoading(true);
 
-    const result = await askTutorWithVisuals(userMsg, context);
-    setMessages(prev => [...prev, { role: 'ai', text: result.text }]);
-    onVisualUpdate(result.visuals, result.text);
-    
+    try {
+      const newStep = await askTutorWithVisuals(userMsg, context, messages);
+      setMessages(prev => [...prev, { role: 'ai', text: `I've created a detailed diagram and explanation for "${newStep.title}". Check the main board!` }]);
+      onNewStep(newStep);
+    } catch (e) {
+      setMessages(prev => [...prev, { role: 'ai', text: "Sorry, I couldn't generate that explanation right now." }]);
+    }
     setLoading(false);
   };
 

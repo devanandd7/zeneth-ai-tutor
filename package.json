@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.41.0",
+    "@remotion/player": "^4.0.443",
     "@xyflow/react": "^12.10.2",
     "katex": "^0.16.44",
     "mermaid": "^11.14.0",
@@ -20,7 +21,9 @@
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "rehype-katex": "^7.0.1",
-    "remark-math": "^6.0.0"
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "remotion": "^4.0.443"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

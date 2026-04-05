@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -8,94 +8,92 @@ import {
   PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
-import { ReactFlow, Background, Controls } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import 'katex/dist/katex.min.css';
 
-import { Visualization, ChartData, CodeData, FlowData, DiagramElement } from '../types';
-import DiagramArea from './DiagramArea';
+import { Visualization, ChartData, CodeData } from '../types';
+import StoryboardCanvas, { CanvasNode, CanvasEdge } from './StoryboardCanvas';
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
 const CHART_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6'];
 
-// ─── Mermaid Renderer ─────────────────────────────────────────────────────────
-const MermaidChart: React.FC<{ chart: string }> = ({ chart }) => {
-  const ref = useRef<HTMLDivElement>(null);
-  const [svg, setSvg] = useState('');
+import remarkGfm from 'remark-gfm';
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const mermaid = (await import('mermaid')).default;
-        mermaid.initialize({ startOnLoad: false, theme: 'dark', themeVariables: { primaryColor: '#6366f1', primaryTextColor: '#e2e8f0', edgeLabelBackground: '#1e293b', lineColor: '#6366f1' } });
-        const id = `mermaid-${Math.random().toString(36).slice(2)}`;
-        const { svg: rendered } = await mermaid.render(id, chart);
-        if (!cancelled) setSvg(rendered);
-      } catch (e) {
-        console.error('Mermaid error:', e);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [chart]);
+// ─── Markdown + Math Renderer ──────────────────────────────────────────────────
+const MarkdownMathView: React.FC<{ content: string, currentTime: number, duration: number }> = ({ content, currentTime, duration }) => {
+  // Sync the markdown reveal with the audio pacing by chunks
+  const blocks = content.split('\\n\\n');
+  const progress = Math.min(1, Math.max(0, currentTime / (duration || 0.1)));
+  const visibleBlocks = Math.floor(progress * blocks.length) + 1;
+  const visibleContent = blocks.slice(0, visibleBlocks).join('\\n\\n');
 
   return (
-    <div ref={ref} className="w-full h-full flex items-center justify-center p-6">
-      {svg
-        ? <div className="w-full max-h-full overflow-auto" dangerouslySetInnerHTML={{ __html: svg }} />
-        : <div className="text-slate-400 text-sm animate-pulse">Rendering diagram…</div>
-      }
+    <div className="w-full h-full flex flex-col p-6 overflow-y-auto">
+      <div className="glass-dark border border-indigo-500/20 rounded-2xl p-6 max-w-4xl mx-auto w-full transition-all duration-300">
+        <div className="text-emerald-400 text-xs uppercase tracking-widest mb-8 font-black flex items-center justify-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          Detailed Explanation
+        </div>
+        <div className="prose prose-invert prose-sm max-w-none prose-headings:text-indigo-300 prose-headings:text-sm prose-a:text-indigo-400 katex-block animate-fade-in-up" style={{ fontSize: '13px', lineHeight: '1.7' }}>
+          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+            {visibleContent}
+          </ReactMarkdown>
+        </div>
+      </div>
     </div>
   );
 };
 
-// ─── KaTeX Renderer ───────────────────────────────────────────────────────────
-const KaTeXView: React.FC<{ formula: string }> = ({ formula }) => (
-  <div className="w-full h-full flex items-center justify-center p-8">
-    <div className="glass-dark border border-indigo-500/20 rounded-3xl p-10 max-w-2xl w-full text-center">
-      <div className="text-indigo-400 text-xs uppercase tracking-widest mb-6 font-black">Mathematical Formula</div>
-      <div className="text-white text-2xl katex-block">
-        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-          {`$$${formula}$$`}
-        </ReactMarkdown>
-      </div>
-    </div>
-  </div>
-);
-
 // ─── Code Renderer ────────────────────────────────────────────────────────────
-const CodeView: React.FC<{ data: CodeData }> = ({ data }) => (
-  <div className="w-full h-full flex flex-col p-4 overflow-hidden">
-    {data.title && (
-      <div className="flex items-center gap-3 mb-3 px-4">
-        <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-        <span className="text-indigo-400 text-xs font-black uppercase tracking-widest">{data.title}</span>
-      </div>
-    )}
-    <div className="flex-grow overflow-auto rounded-2xl border border-white/10">
-      <div className="flex items-center gap-2 px-4 py-3 bg-slate-900 border-b border-white/5">
-        <span className="w-3 h-3 rounded-full bg-red-500/70" />
-        <span className="w-3 h-3 rounded-full bg-yellow-500/70" />
-        <span className="w-3 h-3 rounded-full bg-green-500/70" />
-        <span className="ml-3 text-slate-500 text-xs font-mono">{data.language}</span>
-      </div>
-      <Highlight theme={themes.nightOwl} code={data.code.trim()} language={data.language as any}>
-        {({ className, style, tokens, getLineProps, getTokenProps }) => (
-          <pre className={`${className} p-5 text-sm overflow-auto m-0`} style={{ ...style, background: '#0f172a' }}>
-            {tokens.map((line, i) => (
-              <div key={i} {...getLineProps({ line })} className="table-row">
-                <span className="table-cell pr-4 select-none text-slate-600 text-right min-w-[2rem]">{i + 1}</span>
-                <span className="table-cell">
-                  {line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}
-                </span>
-              </div>
-            ))}
-          </pre>
+const CodeView: React.FC<{ data: CodeData, currentTime: number, duration: number }> = ({ data, currentTime, duration }) => {
+  return (
+    <div className="w-full h-full flex flex-col p-6 overflow-y-auto">
+      
+      {/* ── Syntax Highlighting Block ── */}
+      <div className="w-full shrink-0 flex flex-col p-4 overflow-hidden mb-6 border border-white/5 bg-slate-900/30 rounded-2xl">
+        {data.title && (
+          <div className="flex items-center gap-3 mb-3 px-4">
+            <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
+            <span className="text-indigo-400 text-xs font-black uppercase tracking-widest">{data.title}</span>
+          </div>
         )}
-      </Highlight>
+        <div className="flex-grow overflow-auto rounded-xl border border-white/10 bg-slate-900">
+          <div className="flex items-center gap-2 px-4 py-3 bg-slate-950/50 border-b border-white/5">
+            <span className="w-3 h-3 rounded-full bg-red-500/70" />
+            <span className="w-3 h-3 rounded-full bg-yellow-500/70" />
+            <span className="w-3 h-3 rounded-full bg-green-500/70" />
+            <span className="ml-3 text-slate-500 text-xs font-mono">{data.language}</span>
+          </div>
+          <Highlight theme={themes.nightOwl} code={data.code.trim()} language={data.language as any}>
+            {({ className, style, tokens, getLineProps, getTokenProps }) => {
+              const progress = Math.min(1, Math.max(0, currentTime / (duration || 0.1)));
+              const visibleLines = Math.floor(progress * tokens.length) + 1;
+              return (
+                <pre className={`${className} p-5 text-sm overflow-auto m-0`} style={{ ...style, background: '#0f172a' }}>
+                  {tokens.map((line, i) => (
+                    <div key={i} {...getLineProps({ line })} className="table-row transition-all duration-500"
+                      style={{ opacity: i < visibleLines ? 1 : 0, transform: i < visibleLines ? 'translateX(0)' : 'translateX(-10px)' }}>
+                      <span className="table-cell pr-4 select-none text-slate-600 text-right min-w-[2rem]">{i + 1}</span>
+                      <span className="table-cell">{line.map((token, key) => <span key={key} {...getTokenProps({ token })} />)}</span>
+                    </div>
+                  ))}
+                </pre>
+              );
+            }}
+          </Highlight>
+        </div>
+      </div>
+
+      {/* ── Explainatory Markdown Caption ── */}
+      {data.caption && (
+        <div className="w-full shrink-0 prose prose-invert prose-lg max-w-none prose-headings:text-indigo-300 prose-a:text-indigo-400 katex-block bg-white/5 p-6 rounded-2xl border border-white/10 mt-auto shadow-xl">
+          <ReactMarkdown remarkPlugins={[remarkMath, remarkGfm]} rehypePlugins={[rehypeKatex]}>
+            {data.caption}
+          </ReactMarkdown>
+        </div>
+      )}
     </div>
-  </div>
-);
+  );
+};
 
 // ─── Chart Renderer ───────────────────────────────────────────────────────────
 const ChartView: React.FC<{ data: ChartData }> = ({ data }) => {
@@ -104,12 +102,7 @@ const ChartView: React.FC<{ data: ChartData }> = ({ data }) => {
     data.datasets.forEach(ds => { entry[ds.name] = ds.values[i] ?? 0; });
     return entry;
   });
-
-  const sharedProps = {
-    data: flatData,
-    margin: { top: 10, right: 20, left: 0, bottom: 0 }
-  };
-
+  const sharedProps = { data: flatData, margin: { top: 10, right: 20, left: 0, bottom: 0 } };
   const axes = (
     <>
       <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
@@ -119,7 +112,6 @@ const ChartView: React.FC<{ data: ChartData }> = ({ data }) => {
       <Legend wrapperStyle={{ color: '#94a3b8', fontSize: 12 }} />
     </>
   );
-
   return (
     <div className="w-full h-full flex flex-col items-center justify-center p-6">
       {data.title && <p className="text-indigo-400 text-xs font-black uppercase tracking-widest mb-4">{data.title}</p>}
@@ -137,97 +129,84 @@ const ChartView: React.FC<{ data: ChartData }> = ({ data }) => {
   );
 };
 
-// ─── React Flow Renderer ──────────────────────────────────────────────────────
-const FlowView: React.FC<{ data: FlowData }> = ({ data }) => {
-  const nodes = data.nodes.map((n, i) => ({
-    id: n.id,
-    data: { label: n.label },
-    position: { x: n.x ?? (i % 3) * 200 + 50, y: n.y ?? Math.floor(i / 3) * 120 + 50 },
-    style: { background: '#1e293b', color: '#e2e8f0', border: '2px solid #6366f1', borderRadius: 12, padding: '8px 16px', fontSize: 13, fontWeight: 700 }
-  }));
-  const edges = data.edges.map(e => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    label: e.label,
-    style: { stroke: '#6366f1', strokeWidth: 2 },
-    labelStyle: { fill: '#94a3b8', fontSize: 11 }
-  }));
-
-  return (
-    <div style={{ width: '100%', height: '100%' }}>
-      <ReactFlow nodes={nodes} edges={edges} fitView nodesDraggable={false} elementsSelectable={false}>
-        <Background color="#1e293b" gap={20} />
-        <Controls style={{ background: '#0f172a', border: '1px solid #334155' }} />
-      </ReactFlow>
-    </div>
-  );
-};
-
-// ─── Markdown Renderer ────────────────────────────────────────────────────────
-const MarkdownView: React.FC<{ content: string }> = ({ content }) => (
-  <div className="w-full h-full overflow-auto p-8">
-    <div className="prose-invert prose-max-none">
-      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-        {content}
-      </ReactMarkdown>
-    </div>
-  </div>
-);
-
-// ─── Main Smart Renderer ──────────────────────────────────────────────────────
+// ─── Main Props ──────────────────────────────────────────────────────────────
 interface Props {
-  visualization?: Visualization;
-  elements: DiagramElement[];
+  canvasNodes: CanvasNode[];
+  canvasEdges: CanvasEdge[];
+  currentStepIndex: number;
+  relativeTime: number;
+  stepDurations: number[];
+  stepTitles: string[];
   highlightedIds: Set<string>;
+  visualization?: Visualization;
+  currentTime: number;
+  duration: number;
+  onLoadingChange?: (isLoading: boolean) => void;
 }
 
-const VisualizationRenderer: React.FC<Props> = ({ visualization, elements, highlightedIds }) => {
-  // Always show emoji whiteboard on the left (25%) when a rich viz is present
-  const hasRichViz = visualization && visualization.type !== 'emoji';
+const VisualizationRenderer: React.FC<Props> = ({
+  canvasNodes,
+  canvasEdges,
+  currentStepIndex,
+  relativeTime,
+  stepDurations,
+  stepTitles,
+  highlightedIds,
+  visualization,
+  currentTime,
+  duration,
+  onLoadingChange,
+}) => {
+  // Non-storyboard types rendered fullscreen in split-view
+  const isSpecialViz = visualization && ['katex', 'code', 'chart', 'markdown'].includes(visualization.type);
 
   return (
-    <div className="relative w-full h-full bg-[#020617] rounded-[2.5rem] overflow-hidden border border-white/10 shadow-[0_32px_64px_-16px_rgba(0,0,0,0.6)] flex">
-      {/* Dot Grid Background */}
-      <div className="absolute inset-0 opacity-5 pointer-events-none"
-        style={{ backgroundImage: 'radial-gradient(circle, #6366f1 1px, transparent 1px)', backgroundSize: '28px 28px' }} />
+    <div className="relative w-full h-full flex flex-row overflow-hidden rounded-[2.5rem] bg-[#020617]">
+      {/* ── Unified Storyboard Canvas (Left side) ── */}
+      <div 
+        className="relative h-full transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)]"
+        style={{ width: isSpecialViz ? '62%' : '100%' }}
+      >
+        <StoryboardCanvas
+          nodes={canvasNodes}
+          edges={canvasEdges}
+          currentStepIndex={currentStepIndex}
+          relativeTime={relativeTime}
+          stepDurations={stepDurations}
+          stepTitles={stepTitles}
+          highlightedIds={highlightedIds}
+        />
+        
+        {/* Subtle right shadow fading when split screen is active */}
+        {isSpecialViz && (
+          <div className="absolute inset-y-0 right-0 w-24 bg-gradient-to-l from-black/50 to-transparent pointer-events-none z-10" />
+        )}
+      </div>
 
-      {/* Studio glow */}
-      <div className="absolute top-0 left-0 w-full h-1/2 bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none" />
-
-      {hasRichViz ? (
-        <>
-          {/* Left: Emoji Canvas (mini) */}
-          <div className="relative z-10 flex-shrink-0 border-r border-white/5"
-            style={{ width: elements.length > 0 ? '25%' : '0' }}>
-            {elements.length > 0 && (
-              <DiagramArea elements={elements} highlightedIds={highlightedIds} />
-            )}
+      {/* ── Special viz panel (Right Side) ── */}
+      <div 
+        className="relative h-full bg-gradient-to-b from-[#0a1428] to-[#020617] border-l border-white/5 transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] z-20"
+        style={{ 
+          width: isSpecialViz ? '38%' : '0%',
+          opacity: isSpecialViz ? 1 : 0,
+        }}
+      >
+        {/* We use an inner wrapper with fixed dimensions so content doesn't text-wrap awkwardly during the width CSS transition */}
+        <div className="absolute top-0 left-0 w-[40vw] h-full p-6 pt-16 pb-20 flex items-center justify-center">
+          <div className="absolute top-6 right-6 z-30">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400 glass-dark border border-indigo-500/30 rounded-full px-4 py-2 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+              {isSpecialViz && { katex: '🧮 Math Execution', code: '💻 Code Implementation', chart: '📊 Data Analytics', markdown: '📝 Key Notes' }[visualization!.type]}
+            </span>
           </div>
-
-          {/* Right: Rich Visualization */}
-          <div className="flex-grow relative z-10 overflow-hidden">
-            {/* Header badge */}
-            <div className="absolute top-4 right-4 z-20">
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-indigo-400 glass-dark border border-indigo-500/20 rounded-full px-3 py-1">
-                {{ mermaid: '🗺 Diagram', katex: '🧮 Formula', code: '💻 Code', chart: '📊 Chart', flow: '🔗 Flow Graph', markdown: '📄 Notes' }[visualization.type] ?? ''}
-              </span>
-            </div>
-
-            {visualization.type === 'mermaid' && <MermaidChart chart={visualization.data as string} />}
-            {visualization.type === 'katex' && <KaTeXView formula={visualization.data as string} />}
-            {visualization.type === 'code' && <CodeView data={visualization.data as CodeData} />}
-            {visualization.type === 'chart' && <ChartView data={visualization.data as ChartData} />}
-            {visualization.type === 'flow' && <FlowView data={visualization.data as FlowData} />}
-            {visualization.type === 'markdown' && <MarkdownView content={visualization.data as string} />}
+          
+          <div className="w-full h-full max-h-[85vh] relative glass-panel border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col bg-[#050D1A]/80 backdrop-blur-3xl">
+             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-cyan-500/5 pointer-events-none"></div>
+             {isSpecialViz && (visualization!.type === 'katex' || visualization!.type === 'markdown') && <MarkdownMathView content={visualization!.data as string} currentTime={currentTime} duration={duration} />}
+             {isSpecialViz && visualization!.type === 'code' && <CodeView data={visualization!.data as CodeData} currentTime={currentTime} duration={duration} />}
+             {isSpecialViz && visualization!.type === 'chart' && <ChartView data={visualization!.data as ChartData} />}
           </div>
-        </>
-      ) : (
-        /* Full emoji whiteboard */
-        <div className="w-full h-full z-10">
-          <DiagramArea elements={elements} highlightedIds={highlightedIds} />
         </div>
-      )}
+      </div>
     </div>
   );
 };
