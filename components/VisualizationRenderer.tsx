@@ -1,8 +1,7 @@
 import React from 'react';
-import { Visualization, ChartData, CodeData } from '../types';
+import { Visualization } from '../types';
 import StoryboardCanvas, { CanvasNode, CanvasEdge } from './StoryboardCanvas';
 
-// ─── Main Props ──────────────────────────────────────────────────────────────
 interface Props {
   canvasNodes: CanvasNode[];
   canvasEdges: CanvasEdge[];
@@ -10,29 +9,23 @@ interface Props {
   relativeTime: number;
   stepDurations: number[];
   stepTitles: string[];
+  stepNarratives: string[];
   highlightedIds: Set<string>;
   visualization?: Visualization;
   currentTime: number;
   duration: number;
   onLoadingChange?: (isLoading: boolean) => void;
+  isSpeaking?: boolean;
+  onFocusModeChange?: (v: boolean) => void;
 }
 
 const VisualizationRenderer: React.FC<Props> = ({
-  canvasNodes,
-  canvasEdges,
-  currentStepIndex,
-  relativeTime,
-  stepDurations,
-  stepTitles,
-  highlightedIds,
-  visualization,
-  currentTime,
-  duration,
-  onLoadingChange,
+  canvasNodes, canvasEdges,
+  currentStepIndex, relativeTime, stepDurations, stepTitles, stepNarratives,
+  highlightedIds, isSpeaking, onFocusModeChange,
 }) => {
-  // The canvas is now always fullscreen — explanations are embedded inside diagram nodes.
   return (
-    <div className="relative w-full h-full rounded-[2.5rem] bg-[#020617] overflow-hidden">
+    <div className="relative w-full h-full overflow-hidden" style={{ background: '#020810' }}>
       <StoryboardCanvas
         nodes={canvasNodes}
         edges={canvasEdges}
@@ -40,7 +33,10 @@ const VisualizationRenderer: React.FC<Props> = ({
         relativeTime={relativeTime}
         stepDurations={stepDurations}
         stepTitles={stepTitles}
+        stepNarratives={stepNarratives}
         highlightedIds={highlightedIds}
+        isSpeaking={isSpeaking}
+        onFocusModeChange={onFocusModeChange}
       />
     </div>
   );

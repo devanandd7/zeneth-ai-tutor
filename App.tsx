@@ -37,6 +37,7 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [currentTopic, setCurrentTopic] = useState('Lesson');
   const [ttsProgress, setTtsProgress] = useState<string>('');
+  const [isFocusMode, setIsFocusMode] = useState(false);
 
   const totalDuration = tutorialData.reduce((acc, step) => acc + step.duration, 0);
   const animationFrameRef = useRef<number>(0);
@@ -119,6 +120,7 @@ const App: React.FC = () => {
 
   const stepDurations = useMemo(() => tutorialData.map(s => s.duration), [tutorialData]);
   const stepTitles = useMemo(() => tutorialData.map(s => s.title), [tutorialData]);
+  const stepNarratives = useMemo(() => tutorialData.map(s => s.narrative || ''), [tutorialData]);
 
   const stopAudio = useCallback(() => {
     // Stop HTML5 Audio blob playback
@@ -252,6 +254,14 @@ const App: React.FC = () => {
     utterance.onstart = () => { setIsLoadingAudio(false); setIsSpeaking(true); };
     utterance.onend = () => { setIsSpeaking(false); };
     utterance.onerror = () => { setIsSpeaking(false); setIsLoadingAudio(false); };
+
+    utterance.onboundary = (e) => {
+      const progress = e.charIndex / Math.max(1, cleanedText.length);
+      const stepStart = currentStepIndex === 0 ? 0 : stepDurations.slice(0, currentStepIndex).reduce((a, b) => a + b, 0);
+      const dur = tutorialData[currentStepIndex]?.duration || 20;
+      setCurrentTime(stepStart + (dur * progress));
+      lastUpdateRef.current = performance.now(); // Keep rAF in sync
+    };
 
     currentUtteranceRef.current = utterance;
     window.speechSynthesis.speak(utterance);
@@ -468,11 +478,14 @@ const App: React.FC = () => {
               relativeTime={relTime}
               stepDurations={stepDurations}
               stepTitles={stepTitles}
+              stepNarratives={stepNarratives}
               highlightedIds={highlightedIds}
               visualization={currentStep?.visualization}
               currentTime={relTime}
               duration={currentStep?.duration || 1}
               onLoadingChange={setIsVisualLoading}
+              isSpeaking={isSpeaking}
+              onFocusModeChange={setIsFocusMode}
             />
             {/* Dark vignette over canvas so controls pop */}
             <div className="absolute inset-0 pointer-events-none bg-gradient-to-t from-black via-transparent to-black/40"></div>
@@ -480,8 +493,11 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* Top Navigation Bar (Floating) */}
-      <div className="absolute top-6 left-6 right-6 z-40 flex justify-between items-start pointer-events-none">
+      {/* Top Navigation Bar (Floating) — auto-hides in focus mode */}
+      <div
+        className="absolute top-6 left-6 right-6 z-40 flex justify-between items-start pointer-events-none"
+        style={{ opacity: isFocusMode ? 0 : 1, transform: isFocusMode ? 'translateY(-8px)' : 'translateY(0)', transition: 'opacity 0.7s ease, transform 0.7s ease', pointerEvents: isFocusMode ? 'none' : undefined }}
+      >
         <div className="glass-dark px-6 py-4 rounded-3xl border border-white/10 shadow-2xl flex items-center gap-5 pointer-events-auto">
           <div className={`relative flex items-center justify-center w-12 h-12 rounded-full glass border ${isSpeaking ? 'border-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.5)]' : 'border-white/10'}`}>
             {isLoadingAudio ? <div className="w-5 h-5 border-[3px] border-indigo-500 border-t-transparent animate-spin rounded-full"></div> : <span className="text-xl">{isSpeaking ? '🎙️' : '🧠'}</span>}
@@ -567,8 +583,11 @@ const App: React.FC = () => {
         />
       </div>
 
-      {/* Bottom Area: Disappearing Transcript & Floating Dock */}
-      <div className="absolute bottom-6 left-0 right-0 z-40 flex flex-col items-center gap-4 pointer-events-none">
+      {/* Bottom Area: Disappearing Transcript & Floating Dock — auto-hides in focus mode */}
+      <div
+        className="absolute bottom-6 left-0 right-0 z-40 flex flex-col items-center gap-4 pointer-events-none"
+        style={{ opacity: isFocusMode ? 0 : 1, transform: isFocusMode ? 'translateY(10px)' : 'translateY(0)', transition: 'opacity 0.7s ease, transform 0.7s ease', pointerEvents: isFocusMode ? 'none' : undefined }}
+      >
         
         {/* Floating Transcript Panel */}
         <div className={`w-full max-w-4xl transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${showTranscript && (isPlaying || currentTime > 0) ? 'translate-y-0 opacity-100 pointer-events-auto' : 'translate-y-10 opacity-0 pointer-events-none'}`}>

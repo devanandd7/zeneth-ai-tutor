@@ -508,10 +508,7 @@ const parseSteps = (raw: string, topicType: TopicType): TutorialStep[] => {
 
     let parsed = JSON.parse(cleaned);
 
-    if (!Array.isArray(parsed)) {
-      const arrayVal = Object.values(parsed).find(Array.isArray) as TutorialStep[] | undefined;
-      parsed = arrayVal ?? [parsed];
-    }
+    parsed = parsed?.steps ?? parsed?.lesson ?? (Array.isArray(parsed) ? parsed : [parsed]);
 
     parsed = parsed.flat();
 
@@ -552,7 +549,14 @@ const parseSteps = (raw: string, topicType: TopicType): TutorialStep[] => {
           // Identify image node (we forced one in the system prompt)
           const imgNodeId = fd.nodes.find((n: any) => n.nodeType === 'image')?.id;
           const nodeIds = new Set(fd.nodes.map((n: any) => n.id));
-          const validEdges = (fd.edges || []).filter((e: any) => nodeIds.has(e.source) && nodeIds.has(e.target));
+          const mappedEdges = (fd.edges || []).map((e: any) => ({
+            ...e,
+            from: e.source || e.from,
+            to: e.target || e.to,
+            source: e.source || e.from,
+            target: e.target || e.to
+          }));
+          const validEdges = mappedEdges.filter((e: any) => nodeIds.has(e.source) && nodeIds.has(e.target));
           
           // If valid edges are fewer than expected or zero, but we HAVE nodes
           if (validEdges.length === 0 && fd.nodes.length > 1) {

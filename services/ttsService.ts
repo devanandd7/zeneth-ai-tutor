@@ -85,8 +85,8 @@ export function cleanTextForTTS(text: string): string {
     // Strip markdown formatting
     .replace(/```[\s\S]*?```/g, '(code example)')
     .replace(/`[^`]+`/g, '')
-    .replace(/#+\s+/g, '') // headings
-    .replace(/\*\*([^*]+)\*\*/g, '$1') // bold
+    .replace(/\*\*(.*)\*\*/g, '$1') // Extract text without asterisks
+    .replace(/#{1,6}\s/g, '') // remove headers
     .replace(/\*([^*]+)\*/g, '$1')   // italic
     .replace(/!\[.*?\]\(.*?\)/g, '') // images
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
