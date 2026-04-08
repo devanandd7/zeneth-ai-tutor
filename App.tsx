@@ -9,6 +9,7 @@ import { generateTutorialForTopic } from './services/groqService';
 import { exportTutorialAsHTML } from './utils/exportTutorial';
 import TutorialVideo from './components/Remotion/TutorialVideo';
 import { fetchNarrativeAudio, getBlobDuration, cleanTextForTTS } from './services/ttsService';
+import { detectInputLanguage } from './services/groqService';
 
 const App: React.FC = () => {
   const [started, setStarted] = useState(false);
@@ -147,8 +148,16 @@ const App: React.FC = () => {
   }, [stopAudio]);
 
   // ── Generate & Cache TTS audio for every step ────────────────────────────
-  const generateAllTTS = useCallback(async (steps: TutorialStep[]): Promise<TutorialStep[]> => {
+  const generateAllTTS = useCallback(async (steps: TutorialStep[], topic: string): Promise<TutorialStep[]> => {
     const updated = [...steps];
+    // Detect from topic first; then ALSO check first narrative (most accurate —
+    // AI-generated Hindi narratives contain Devanagari even if topic was typed in Roman)
+    const topicLang = detectInputLanguage(topic);
+    const narrativeLang = steps[0]?.narrative ? detectInputLanguage(steps[0].narrative) : 'en';
+    // If either signal says Hindi → use Hindi voice
+    const lang: 'hi' | 'en' = (topicLang === 'hi' || narrativeLang === 'hi') ? 'hi' : 'en';
+    console.log(`[TTS] Language detected: topic="${topicLang}" narrative="${narrativeLang}" → using "${lang}"`);
+
     for (let i = 0; i < updated.length; i++) {
       const step = updated[i];
       if (!step.narrative || step.narrative.trim().length < 5) continue;
@@ -156,26 +165,24 @@ const App: React.FC = () => {
       setTtsProgress(`Generating voice ${i + 1}/${updated.length}...`);
       
       try {
-        const cacheId = `tts-${currentTopic}-step-${i}`;
-        const blobUrl = await fetchNarrativeAudio(step.narrative, cacheId);
+        const cacheId = `tts-${topic}-step-${i}`;
+        const blobUrl = await fetchNarrativeAudio(step.narrative, cacheId, lang);
         
         if (blobUrl) {
-          // Measure true audio duration to sync timeline
           const audioDuration = await getBlobDuration(blobUrl);
           updated[i] = {
             ...step,
             audioUrl: blobUrl,
-            duration: Math.max(step.duration, Math.ceil(audioDuration) + 2), // ensure step is at least as long as audio + 2s buffer
+            duration: Math.max(step.duration, Math.ceil(audioDuration) + 2),
           };
         }
       } catch (err) {
         console.warn(`TTS generation failed for step ${i}:`, err);
-        // Step keeps its original duration and no audioUrl — will use fallback
       }
     }
     setTtsProgress('');
     return updated;
-  }, [currentTopic]);
+  }, []);
 
   // ── Play cached audio blob for a step ────────────────────────────────────
   const speakText = async (text: string, stepIdx?: number) => {
@@ -300,7 +307,7 @@ const App: React.FC = () => {
       
       // Generate & cache TTS audio for all steps in the background
       setTtsProgress('Preparing voices...');
-      const dataWithAudio = await generateAllTTS(newData);
+      const dataWithAudio = await generateAllTTS(newData, topic);
       
       setTutorialData(dataWithAudio);
       setCurrentTime(0);
@@ -570,7 +577,9 @@ const App: React.FC = () => {
             setTtsProgress('Recording voice...');
             try {
               const cacheId = `tts-qa-step-${Date.now()}`;
-              const blobUrl = await fetchNarrativeAudio(newStep.narrative, cacheId);
+              // Detect language from the generated narrative itself (most reliable)
+              const qaLang = detectInputLanguage(newStep.narrative);
+              const blobUrl = await fetchNarrativeAudio(newStep.narrative, cacheId, qaLang);
               if (blobUrl) {
                 const audioDuration = await getBlobDuration(blobUrl);
                 newStep.audioUrl = blobUrl;

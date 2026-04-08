@@ -95,8 +95,9 @@ export function cleanTextForTTS(text: string): string {
 // ─── Kokoro TTS API Call ──────────────────────────────────────────────────────
 // Returns a WAV Blob. Timesout gracefully after 90s.
 
-async function fetchKokoroTTS(text: string): Promise<Blob> {
-  console.log(`[Kokoro TTS] Requesting audio for ${text.length} chars...`);
+async function fetchKokoroTTS(text: string, lang: 'hi' | 'en' = 'en'): Promise<Blob> {
+  const language = lang === 'hi' ? 'hi' : 'en-us';
+  console.log(`[Kokoro TTS] Requesting audio — lang=${language}, chars=${text.length}...`);
 
   const controller = new AbortController();
   const timeout = setTimeout(() => {
@@ -110,7 +111,7 @@ async function fetchKokoroTTS(text: string): Promise<Blob> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         text,
-        language: 'en-us',
+        language,
         speed: 1.0,
       }),
       signal: controller.signal,
@@ -193,7 +194,7 @@ export async function getBlobDuration(url: string): Promise<number> {
 // ─── Main TTS Pipeline ───────────────────────────────────────────────────────
 // Returns an ObjectURL string (blob:...) — works in both App & Remotion.
 
-export async function fetchNarrativeAudio(narrative: string, cacheId: string): Promise<string> {
+export async function fetchNarrativeAudio(narrative: string, cacheId: string, lang: 'hi' | 'en' = 'en'): Promise<string> {
   // 1. Try IndexedDB cache first
   const cached = await getCachedBlob(cacheId);
   if (cached) {
@@ -207,10 +208,10 @@ export async function fetchNarrativeAudio(narrative: string, cacheId: string): P
     return '';
   }
 
-  console.log(`[TTS] Cache MISS for ${cacheId}. Calling Kokoro...`);
+  console.log(`[TTS] Cache MISS for ${cacheId}. Calling Kokoro (lang=${lang})...`);
 
   try {
-    const wavBlob = await fetchKokoroTTS(cleanNarrative);
+    const wavBlob = await fetchKokoroTTS(cleanNarrative, lang);
 
     // Cache the raw Blob in IndexedDB for future page loads
     await setCachedBlob(cacheId, wavBlob);

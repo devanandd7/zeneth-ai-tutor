@@ -11,6 +11,75 @@ const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const MODEL = 'llama-3.3-70b-versatile';
 const MAX_RETRIES = 2;
 
+// ─── Language Detector ───────────────────────────────────────────────────────
+// Detects BOTH Devanagari script AND Roman-script Hinglish (e.g. "kya hota hai")
+// ONLY contains words that CANNOT appear in normal English sentences.
+
+const HINGLISH_WORDS = new Set([
+  // Unmistakably Hindi question words
+  'kya', 'kaise', 'kyun', 'kyunki', 'kaun', 'kahan', 'kitna', 'kitne',
+  // Unmistakably Hindi verb forms (no English equivalent spelling)
+  'hota', 'hoti', 'hote', 'hain', 'hoga', 'hogi', 'hoge',
+  'karo', 'kare', 'karta', 'karti', 'karte',
+  'batao', 'bata', 'sikhna', 'sikhao', 'samjhao', 'samajh',
+  'dekho', 'jano', 'chahiye', 'milta', 'milti', 'milte',
+  // Unmistakably Hindi connectors (no clash with English)
+  'aur', 'toh', 'bhi', 'nahi', 'nhi',
+  'mein', 'agar', 'lekin', 'phir', 'isliye', 'kyonki',
+  // Unmistakably Hindi pronouns
+  'yeh', 'woh', 'hum', 'aap', 'iska', 'uska', 'mera', 'tera', 'apna',
+  // Strong Hindi adverbs/adjectives
+  'accha', 'acha', 'bahut', 'zyada', 'jyada', 'abhi', 'pehle',
+  'dono', 'kuch', 'matlab', 'yani', 'asaan', 'mushkil',
+]);
+
+export const detectInputLanguage = (text: string): 'hi' | 'en' => {
+  const lower = text.toLowerCase().trim();
+
+  // 1. Check for Devanagari script characters (pure Hindi)
+  const devanagariMatches = (text.match(/[\u0900-\u097F]/g) || []).length;
+  const totalNonSpace = text.replace(/\s/g, '').length;
+  if (totalNonSpace > 0 && (devanagariMatches / totalNonSpace) > 0.15) return 'hi';
+
+  // 2. Check for Hinglish (Roman-script unambiguous Hindi words)
+  const words = lower.split(/[\s,!?\.]+/).filter(w => w.length > 1); // skip 1-char words
+  if (words.length === 0) return 'en';
+
+  const hinglishCount = words.filter(w => HINGLISH_WORDS.has(w)).length;
+
+  // Need at least 1 unambiguous Hindi word in short queries (≤8 words)
+  if (words.length <= 8 && hinglishCount >= 1) return 'hi';
+  // For longer queries, need ≥25% to be Hindi words
+  if (hinglishCount / words.length >= 0.25) return 'hi';
+
+  return 'en';
+};
+
+
+const getLanguageInstructions = (lang: 'hi' | 'en'): string => {
+  if (lang === 'hi') {
+    return `
+━━━ LANGUAGE MODE: HINDI + ENGLISH (BILINGUAL / HINGLISH) ━━━
+You MUST write ALL narrative text in a natural Hindi+English mix (Hinglish), just like a real passionate Indian teacher on YouTube speaks.
+STRICT RULES:
+1. Narratives MUST be in simple conversational Hindi (Devanagari) + technical terms stay in English.
+   Good example: "दोस्तों, if-else statement एक decision maker है। जैसे अगर आपके 90 से ज्यादा marks हैं, तो Grade A मिलेगी, वरना Grade B।"
+2. Node LABELS in flowData: keep short English terms. Node DETAIL fields: write in Hindi.
+   Example: { "label": "🟢 Program Start", "detail": "यहाँ से program शुरू होता है" }
+3. Step TITLES: always in English (for UI display).
+4. Use Indian examples: Zomato, Paytm, IRCTC, Swiggy, JioCinema, ISRO, Flipkart. Use ₹ not $.
+5. Tone: energetic, warm, slightly casual — like a favourite IIT professor.
+6. NEVER write pure formal Hindi. Always use the mix Indians naturally speak.
+SAMPLE NARRATIVE STYLE:
+"दोस्तों, क्या आपने कभी सोचा है कि जब आप Paytm पर अपना PIN enter करते हैं, तो app कैसे decide करता है — अंदर जाने दे या block करे? यही काम करता है if-else statement! यह basically एक gatekeeper है। अगर condition true है → एक रास्ता, false है → दूसरा रास्ता। Railway junction की तरह सोचो — train सिर्फ left या right जा सकती है। Programming में exactly यही होता है!"
+`;
+  }
+  return `
+━━━ LANGUAGE MODE: ENGLISH ━━━
+Write all narrative text in clear, engaging English. Use Indian examples where relatable (₹, Zomato, ISRO, etc.).
+`;
+};
+
 // ─── Topic Classifier ─────────────────────────────────────────────────────────
 const TOPIC_KEYWORDS: Record<TopicType, string[]> = {
   math: [
@@ -249,7 +318,7 @@ MANDATORY CONTENT: visualization.type = "markdown" and "data" must be the Markdo
 };
 
 // ─── System Prompt Builder ────────────────────────────────────────────────────
-const buildSystemPrompt = (topicType: TopicType, topic: string): string => `
+const buildSystemPrompt = (topicType: TopicType, topic: string, lang: 'hi' | 'en' = 'en'): string => `
 You are a world-class professor who teaches like a combination of Richard Feynman (clarity + curiosity) and a senior software engineer/scientist (technical depth). Your goal: every student walks away saying "I FINALLY understand this!"
 
 ━━━ CRITICAL THINKING REQUIREMENT ━━━
@@ -267,6 +336,8 @@ You are a world-class professor who teaches like a combination of Richard Feynma
 - Every Markdown "caption" or "data" string MUST embed at least one image using ![Image](link)
 - Put the image AFTER the Definition section to break up text
 - Use descriptive prompts in the link: e.g., "![ATM-Machine](https://image.pollinations.ai/prompt/modern-atm-machine-touchscreen-interface?width=600&height=338&nologo=true)"
+
+${getLanguageInstructions(lang)}
 
 ${getDomainIntelligence(topicType, topic)}
 
@@ -601,9 +672,16 @@ export const generateTutorialForTopic = async (
   topic: string,
 ): Promise<TutorialStep[]> => {
   const topicType = detectTopicType(topic);
-  const systemPrompt = buildSystemPrompt(topicType, topic);
+  const lang = detectInputLanguage(topic); // 🌐 Auto-detect Hindi vs English
+  const systemPrompt = buildSystemPrompt(topicType, topic, lang);
+
+  const langNote = lang === 'hi'
+    ? `⚠️ IMPORTANT: The student asked in HINDI. Write ALL narrative text in natural Hindi+English mix (Hinglish). Technical terms stay in English, explanations in Hindi.`
+    : `Write all content in clear, engaging English.`;
 
   const userPrompt = `Create a 3-part micro-lecture on: "${topic}"
+
+${langNote}
 
 REMINDER CHECKLIST (follow ALL of these):
 ${topicType === 'code' ? `
@@ -636,14 +714,21 @@ export const askTutorWithVisuals = async (
   chatHistory: ChatMessage[] = [],
 ): Promise<TutorialStep> => {
   const topicType = detectTopicType(question + ' ' + context);
-  const systemPrompt = buildSystemPrompt(topicType, question);
+  const lang = detectInputLanguage(question); // 🌐 Detect Hindi/English per question
+  const systemPrompt = buildSystemPrompt(topicType, question, lang);
   
   const historyMessages = chatHistory.slice(-4).map(m => ({
     role: m.role === 'ai' ? 'assistant' : 'user',
     content: m.text,
   }));
 
+  const langNote2 = lang === 'hi'
+    ? `⚠️ Student asked in HINDI — respond with narrative in Hinglish (Hindi+English mix). Keep technical terms in English.`
+    : `Respond in clear English.`;
+
   const userPrompt = `The student asked a follow-up question during the lesson on "${context}": "${question}"
+
+${langNote2}
   
 You must generate a SINGLE, highly detailed TutorialStep that explains this concept perfectly.
 Follow the exact same JSON format as regular steps.
