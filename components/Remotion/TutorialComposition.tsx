@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { AbsoluteFill, useCurrentFrame, useVideoConfig, Sequence, Audio } from 'remotion';
+import { AbsoluteFill, useCurrentFrame, useVideoConfig, Sequence, Audio, continueRender, delayRender } from 'remotion';
 import { TutorialStep, FlowData, ActionType } from '../../types';
 import VisualizationRenderer from '../VisualizationRenderer';
 
@@ -9,11 +9,11 @@ export const TutorialComposition: React.FC<{ steps: TutorialStep[] }> = ({ steps
   
   const currentTime = frame / fps;
 
-  // Calculate timelines exactly like App.tsx
   const stepDurations = useMemo(() => steps.map(s => Math.max(10, s.duration || 10)), [steps]);
   const stepTitles = useMemo(() => steps.map(s => s.title), [steps]);
+  const stepNarratives = useMemo(() => steps.map(s => s.narrative || ''), [steps]);
 
-  // Find which step index we are in currently based on frame time
+  // Find which step we're in
   let currentStepIndex = 0;
   let accumulatedTime = 0;
   for (let i = 0; i < stepDurations.length; i++) {
@@ -23,15 +23,13 @@ export const TutorialComposition: React.FC<{ steps: TutorialStep[] }> = ({ steps
     }
     accumulatedTime += stepDurations[i];
   }
-  // Clamp it
   if (currentStepIndex >= steps.length) currentStepIndex = steps.length - 1;
 
   const stepStartTime = stepDurations.slice(0, currentStepIndex).reduce((sum, d) => sum + d, 0);
   const relativeTime = currentTime - stepStartTime;
-  
   const currentStep = steps[currentStepIndex];
 
-  // Re-build nodes exactly as the App does
+  // Re-build canvas nodes/edges exactly as App.tsx does
   const { canvasNodes, canvasEdges } = useMemo(() => {
     const allNodes: any[] = [];
     const allEdges: any[] = [];
@@ -95,16 +93,14 @@ export const TutorialComposition: React.FC<{ steps: TutorialStep[] }> = ({ steps
     return { canvasNodes: allNodes, canvasEdges: allEdges };
   }, [steps]);
 
-  // Compute what emojis/nodes are actively highlighted via timeline
+  // Highlighted IDs based on timeline events
   const highlightedIds = useMemo(() => {
     const ids = new Set<string>();
     steps.forEach((step, sIdx) => {
       const isPast = sIdx < currentStepIndex;
       const isCurrent = sIdx === currentStepIndex;
       if (!isPast && !isCurrent) return;
-      
       const sRefTime = isCurrent ? relativeTime : stepDurations[sIdx];
-      
       step.timeline.forEach((event) => {
         if (event.action === ActionType.HIGHLIGHT && event.target && event.time <= sRefTime) {
           ids.add(event.target);
@@ -114,43 +110,65 @@ export const TutorialComposition: React.FC<{ steps: TutorialStep[] }> = ({ steps
     return ids;
   }, [steps, currentStepIndex, relativeTime, stepDurations]);
 
-  // Pre-calculate frame offsets for audio sequences
+  // Frame offsets for each step's audio Sequence
   const stepFrameOffsets = useMemo(() => {
     const offsets: number[] = [];
     let acc = 0;
     for (const d of stepDurations) {
-      offsets.push(acc * fps);
+      offsets.push(Math.round(acc * fps));
       acc += d;
     }
     return offsets;
   }, [stepDurations, fps]);
 
+  // Total frames for the whole video
+  const totalFrames = useMemo(
+    () => stepDurations.reduce((sum, d) => sum + Math.round(d * fps), 0),
+    [stepDurations, fps]
+  );
+
   return (
     <AbsoluteFill style={{ backgroundColor: '#020617', color: 'white' }}>
-       {/* Inject the entire VisualizationRenderer precisely hooked into the video frame engine */}
-       <VisualizationRenderer
-          canvasNodes={canvasNodes}
-          canvasEdges={canvasEdges}
-          currentStepIndex={currentStepIndex}
-          relativeTime={relativeTime}
-          stepDurations={stepDurations}
-          stepTitles={stepTitles}
-          highlightedIds={highlightedIds}
-          visualization={currentStep?.visualization}
-          currentTime={relativeTime}
-          duration={currentStep?.duration || 1}
-       />
-       
-       {/* Audio tracks for each step — synced to their step's start frame */}
-       {steps.map((step, i) => {
-         if (!step.audioUrl) return null;
-         const durationFrames = Math.round(stepDurations[i] * fps);
-         return (
-           <Sequence key={`audio-${i}`} from={stepFrameOffsets[i]} durationInFrames={durationFrames}>
-             <Audio src={step.audioUrl} volume={1} />
-           </Sequence>
-         );
-       })}
+      {/* Main visual canvas */}
+      <VisualizationRenderer
+        canvasNodes={canvasNodes}
+        canvasEdges={canvasEdges}
+        currentStepIndex={currentStepIndex}
+        relativeTime={relativeTime}
+        stepDurations={stepDurations}
+        stepTitles={stepTitles}
+        stepNarratives={stepNarratives}
+        highlightedIds={highlightedIds}
+        visualization={currentStep?.visualization}
+        currentTime={relativeTime}
+        duration={currentStep?.duration || 1}
+        isSpeaking={true}
+      />
+
+      {/* ── Audio Tracks: one Sequence per step ────────────────────────────── */}
+      {steps.map((step, i) => {
+        // Skip steps without a generated audioUrl
+        if (!step.audioUrl) {
+          console.warn(`[Remotion] Step ${i} ("${step.title}") has NO audioUrl — no audio will play`);
+          return null;
+        }
+
+        const durationFrames = Math.round(stepDurations[i] * fps);
+        const fromFrame = stepFrameOffsets[i];
+
+        console.log(`[Remotion] Step ${i} audio: from=${fromFrame} dur=${durationFrames} url=${step.audioUrl.slice(0, 60)}`);
+
+        return (
+          <Sequence key={`audio-${i}`} from={fromFrame} durationInFrames={durationFrames}>
+            <Audio
+              src={step.audioUrl}
+              volume={1}
+              // startFrom keeps audio aligned even if Remotion seeks mid-step
+              startFrom={0}
+            />
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };

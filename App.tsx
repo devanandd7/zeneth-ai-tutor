@@ -181,40 +181,54 @@ const App: React.FC = () => {
   const speakText = async (text: string, stepIdx?: number) => {
     stopAudio();
     
-    // 1. Try to play cached blob audio first (premium quality)
-    const step = stepIdx !== undefined ? tutorialData[stepIdx] : tutorialData[currentStepIndex];
+    const targetIdx = stepIdx !== undefined ? stepIdx : currentStepIndex;
+    // ⚠️ Use functional read pattern to get the freshest tutorialData —
+    // avoids stale closure bug where audioUrl was set after speakText was called.
+    const step = tutorialData[targetIdx];
+
+    console.log(`[speakText] step=${targetIdx} audioUrl=${step?.audioUrl ? step.audioUrl.slice(0,60) : 'NONE'}`);
+
+    // 1. Try to play cached Kokoro blob audio (premium quality)
     if (step?.audioUrl) {
       setIsLoadingAudio(true);
-      const audio = new Audio(step.audioUrl);
+      const audio = new Audio();
+      audio.preload = 'auto';
+      audio.src = step.audioUrl;
       audio.playbackRate = playbackSpeed;
       audioRef.current = audio;
       
+      audio.oncanplaythrough = () => {
+        console.log(`[speakText] Audio ready to play for step ${targetIdx}`);
+      };
       audio.onplay = () => {
         setIsLoadingAudio(false);
         setIsSpeaking(true);
+        console.log(`[speakText] ▶ Playing Kokoro audio for step ${targetIdx}`);
       };
       audio.onended = () => {
         setIsSpeaking(false);
         audioRef.current = null;
+        console.log(`[speakText] ✅ Kokoro audio finished for step ${targetIdx}`);
       };
-      audio.onerror = () => {
-        console.warn('Blob audio playback failed, falling back to Web Speech');
+      audio.onerror = (e) => {
+        console.error(`[speakText] ❌ Audio playback error for step ${targetIdx}:`, e);
         setIsLoadingAudio(false);
         setIsSpeaking(false);
         audioRef.current = null;
-        // Fall through to Web Speech API below
         fallbackSpeakText(text);
       };
       
       try {
         await audio.play();
-        return; // Success — don't fall through to Web Speech
-      } catch {
-        console.warn('Audio play() rejected');
+        return; // ✅ Kokoro audio playing — don't fall through
+      } catch (err) {
+        console.warn('[speakText] audio.play() was rejected (autoplay policy?):', err);
+        // Fall through to Web Speech below
       }
     }
     
-    // 2. Fallback: Web Speech API
+    // 2. Fallback: Web Speech API (browser TTS)
+    console.log(`[speakText] No Kokoro audio for step ${targetIdx} — using Web Speech fallback`);
     fallbackSpeakText(text);
   };
 
