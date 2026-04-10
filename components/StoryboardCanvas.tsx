@@ -9,7 +9,13 @@ export interface CanvasNode {
   stepIndex: number;
   indexInStep: number;
   totalInStep: number;
-  nodeType?: 'flow' | 'emoji' | 'input' | 'process' | 'decision' | 'output' | 'data' | 'image' | 'explanation' | 'example' | 'formula' | string;
+  nodeType?:
+  | 'flow' | 'emoji' | 'input' | 'process' | 'decision' | 'output' | 'data' | 'image'
+  // Legacy teacher nodes
+  | 'explanation' | 'example' | 'formula'
+  // NEW: rich text nodes from groqservice
+  | 'definition' | 'insight' | 'note' | 'summary' | 'qa' | 'formula_text'
+  | string;
   emojiContent?: string;
   imageUrl?: string;
 }
@@ -30,44 +36,141 @@ interface Props {
   stepTitles?: string[];
   stepNarratives?: string[];
   highlightedIds?: Set<string>;
-  isSpeaking?: boolean;             // NEW: drives focus mode
-  onFocusModeChange?: (v: boolean) => void; // NEW: notify parent
+  isSpeaking?: boolean;
+  onFocusModeChange?: (v: boolean) => void;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const CANVAS_W    = 6000;
-const CANVAS_H    = 6000;
-const NODE_W      = 300;   // standardised width — height adapts to content type
-const NODE_H      = 320;
-const EXPLAIN_W   = 400;
-const EXPLAIN_H   = 230;
-const PORT_R      = 7;
+const CANVAS_W = 6000;
+const CANVAS_H = 6000;
+const NODE_W = 300;
+const NODE_H = 320;
+// Text nodes are wider and taller to accommodate detailed content
+const TEXT_W = 420;
+const TEXT_H = 260;
+// Legacy teacher node sizes
+const EXPLAIN_W = 400;
+const EXPLAIN_H = 230;
+const PORT_R = 7;
 
-// Hybrid layout spacing — tighter to pack more per screen
-const H_GAP       = 60;    // horizontal gap BETWEEN node right-edge → next left-edge
-const V_GAP       = 70;    // vertical gap BETWEEN node bottom-edge → next top-edge
-const STEP_SEP    = 120;   // extra vertical gap between steps
-const MAX_COLS    = 4;     // max nodes per row before wrapping
-const CX          = CANVAS_W / 2;
-const START_Y     = 280;
+const H_GAP = 60;
+const V_GAP = 70;
+const STEP_SEP = 120;
+const MAX_COLS = 4;
+const CX = CANVAS_W / 2;
+const START_Y = 280;
 
 const ACCENTS = ['#818cf8', '#34d399', '#fb7185', '#fbbf24', '#60a5fa', '#a78bfa'];
 
-// ─── Global Image Cache (session-scoped, memory cache) ───────────────────────
+// ─── Text node type sets ──────────────────────────────────────────────────────
 
-const imageCache = new Map<string, string>(); // cacheKey → resolved URL
+/** New rich-text node types introduced in groqservice */
+const RICH_TEXT_TYPES = new Set([
+  'definition', 'insight', 'note', 'summary', 'qa', 'formula_text',
+]);
+
+/** Legacy teacher-node types (kept for backward compat) */
+const LEGACY_TEACHER_TYPES = new Set(['explanation', 'example', 'formula']);
+
+// ─── Global Image Cache ───────────────────────────────────────────────────────
+
+const imageCache = new Map<string, string>();
 
 // ─── Node dimension helper ────────────────────────────────────────────────────
 
 function nodeSize(nt?: string): { w: number; h: number } {
-  if (nt === 'explanation' || nt === 'example' || nt === 'formula') {
-    return { w: EXPLAIN_W, h: EXPLAIN_H };
-  }
+  if (RICH_TEXT_TYPES.has(nt || '')) return { w: TEXT_W, h: TEXT_H };
+  if (LEGACY_TEACHER_TYPES.has(nt || '')) return { w: EXPLAIN_W, h: EXPLAIN_H };
   if (nt === 'image') return { w: 300, h: 280 };
   if (nt === 'emoji') return { w: 120, h: 100 };
   return { w: NODE_W, h: NODE_H };
 }
+
+// ─── Rich Text Node Themes ────────────────────────────────────────────────────
+// Each text node type has a unique visual language so students can instantly
+// identify what kind of content they're reading.
+
+interface TextNodeTheme {
+  bg: string;
+  borderColor: string;
+  accentBar: string;      // left-border accent color
+  tagBg: string;
+  tagText: string;
+  icon: string;
+  label: string;
+  detailColor: string;
+  labelColor: string;
+}
+
+const RICH_TEXT_THEMES: Record<string, TextNodeTheme> = {
+  definition: {
+    bg: 'linear-gradient(145deg, rgba(30,64,175,0.18) 0%, rgba(5,13,26,0.97) 100%)',
+    borderColor: 'rgba(96,165,250,0.35)',
+    accentBar: '#3b82f6',
+    tagBg: 'rgba(59,130,246,0.18)',
+    tagText: '#93c5fd',
+    icon: '📖',
+    label: 'Definition',
+    detailColor: '#94b8d8',
+    labelColor: '#bfdbfe',
+  },
+  insight: {
+    bg: 'linear-gradient(145deg, rgba(109,40,217,0.18) 0%, rgba(5,13,26,0.97) 100%)',
+    borderColor: 'rgba(167,139,250,0.35)',
+    accentBar: '#7c3aed',
+    tagBg: 'rgba(124,58,237,0.18)',
+    tagText: '#c4b5fd',
+    icon: '💡',
+    label: 'Key Insight',
+    detailColor: '#a99dca',
+    labelColor: '#ddd6fe',
+  },
+  note: {
+    bg: 'linear-gradient(145deg, rgba(185,28,28,0.16) 0%, rgba(5,13,26,0.97) 100%)',
+    borderColor: 'rgba(252,165,165,0.3)',
+    accentBar: '#dc2626',
+    tagBg: 'rgba(220,38,38,0.16)',
+    tagText: '#fca5a5',
+    icon: '⚠️',
+    label: 'Important Note',
+    detailColor: '#c49090',
+    labelColor: '#fecaca',
+  },
+  summary: {
+    bg: 'linear-gradient(145deg, rgba(6,78,59,0.18) 0%, rgba(5,13,26,0.97) 100%)',
+    borderColor: 'rgba(52,211,153,0.3)',
+    accentBar: '#10b981',
+    tagBg: 'rgba(16,185,129,0.16)',
+    tagText: '#6ee7b7',
+    icon: '📋',
+    label: 'Summary',
+    detailColor: '#7ab8a0',
+    labelColor: '#a7f3d0',
+  },
+  qa: {
+    bg: 'linear-gradient(145deg, rgba(120,53,15,0.18) 0%, rgba(5,13,26,0.97) 100%)',
+    borderColor: 'rgba(251,191,36,0.28)',
+    accentBar: '#d97706',
+    tagBg: 'rgba(217,119,6,0.16)',
+    tagText: '#fde68a',
+    icon: '❓',
+    label: 'Q & A',
+    detailColor: '#b8a66e',
+    labelColor: '#fef3c7',
+  },
+  formula_text: {
+    bg: 'linear-gradient(145deg, rgba(120,53,15,0.16) 0%, rgba(5,13,26,0.97) 100%)',
+    borderColor: 'rgba(251,191,36,0.35)',
+    accentBar: '#f59e0b',
+    tagBg: 'rgba(245,158,11,0.16)',
+    tagText: '#fde68a',
+    icon: '📐',
+    label: 'Formula',
+    detailColor: '#d4b870',
+    labelColor: '#fef08a',
+  },
+};
 
 // ─── Layout ──────────────────────────────────────────────────────────────────
 
@@ -80,7 +183,6 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
   const posMap: Record<string, { x: number; y: number }> = {};
   const stepStart: Record<number, number> = {};
 
-  // ── Group nodes by step ────────────────────────────────────────────────────
   const steps = new Map<number, CanvasNode[]>();
   nodes.forEach(n => {
     if (!steps.has(n.stepIndex)) steps.set(n.stepIndex, []);
@@ -96,29 +198,28 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
     const stepNodeIds = new Set(stepNodes.map(n => n.id));
     const stepEdges = edges.filter(e => stepNodeIds.has(e.from) && stepNodeIds.has(e.to));
 
-    // Build adjacency + degree info
-    const inDeg  = new Map<string, number>();
+    const inDeg = new Map<string, number>();
     const outDeg = new Map<string, number>();
-    const adj    = new Map<string, string[]>();
+    const adj = new Map<string, string[]>();
     stepNodes.forEach(n => { inDeg.set(n.id, 0); outDeg.set(n.id, 0); adj.set(n.id, []); });
     stepEdges.forEach(e => {
       adj.get(e.from)?.push(e.to);
-      inDeg.set(e.to,   (inDeg.get(e.to)   || 0) + 1);
+      inDeg.set(e.to, (inDeg.get(e.to) || 0) + 1);
       outDeg.set(e.from, (outDeg.get(e.from) || 0) + 1);
     });
 
-    // ── Detect layout type ──────────────────────────────────────────────────
-    const allInOne      = Array.from(inDeg.values()).every(v => v === 1);
-    const allOutOne     = Array.from(outDeg.values()).every(v => v === 1);
-    const isCycle       = stepNodes.length > 2 &&
-                          stepEdges.length === stepNodes.length &&
-                          allInOne && allOutOne;
-    const isLinearChain = !isCycle &&
-                          stepNodes.length > 1 &&
-                          Array.from(outDeg.values()).every(v => v <= 1) &&
-                          Array.from(inDeg.values()).every(v => v <= 1);
+    const allInOne = Array.from(inDeg.values()).every(v => v === 1);
+    const allOutOne = Array.from(outDeg.values()).every(v => v === 1);
+    const isCycle = stepNodes.length > 2 &&
+      stepEdges.length === stepNodes.length &&
+      allInOne && allOutOne;
 
-    // ── CYCLE LAYOUT — orbital ring ─────────────────────────────────────────
+    const isLinearChain = !isCycle &&
+      stepNodes.length > 1 &&
+      Array.from(outDeg.values()).every(v => v <= 1) &&
+      Array.from(inDeg.values()).every(v => v <= 1);
+
+    // ── CYCLE LAYOUT ──────────────────────────────────────────────────────
     if (isCycle) {
       const radius = 220 + stepNodes.length * 34;
       let currId = stepNodes.slice().sort((a, b) => a.indexInStep - b.indexInStep)[0].id;
@@ -143,10 +244,8 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
       continue;
     }
 
-    // ── LINEAR CHAIN — horizontal snake layout ──────────────────────────────
-    // Follows the linked list order and wraps into rows of MAX_COLS
+    // ── LINEAR CHAIN ──────────────────────────────────────────────────────
     if (isLinearChain && stepNodes.length >= 2) {
-      // Walk the chain in order
       const chainRoots = stepNodes.filter(n => inDeg.get(n.id) === 0);
       const startId = chainRoots.length > 0
         ? chainRoots[0].id
@@ -161,17 +260,14 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
         if (nd) chain.push(nd);
         cur = adj.get(cur)?.[0] ?? '';
       }
-      // Append any disconnected nodes not in chain
       stepNodes.forEach(n => { if (!vis2.has(n.id)) chain.push(n); });
 
-      // Distribute into rows of MAX_COLS — maximise horizontal usage
       const colsThisStep = Math.min(chain.length, MAX_COLS);
       let maxRowH = 0;
       chain.forEach((n, idx) => {
         const col = idx % colsThisStep;
         const row = Math.floor(idx / colsThisStep);
-        const sz  = nodeSize(n.nodeType);
-        // Total row width centred on CX
+        const sz = nodeSize(n.nodeType);
         const rowCount = Math.min(colsThisStep, chain.length - row * colsThisStep);
         const totalRowW = rowCount * sz.w + (rowCount - 1) * H_GAP;
         const rowStartX = CX - totalRowW / 2 + sz.w / 2;
@@ -185,8 +281,7 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
       continue;
     }
 
-    // ── HYBRID DAG LAYOUT — topological levels, horizontal-first ───────────
-    // BFS to assign topological levels
+    // ── HYBRID DAG LAYOUT ─────────────────────────────────────────────────
     let roots = stepNodes.filter(n => inDeg.get(n.id) === 0);
     if (roots.length === 0) {
       roots = [stepNodes.slice().sort((a, b) => a.indexInStep - b.indexInStep)[0]];
@@ -197,7 +292,7 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
     const bfsQ = [...roots];
     while (bfsQ.length > 0) {
       const cur = bfsQ.shift()!;
-      const lv  = levels.get(cur.id)!;
+      const lv = levels.get(cur.id)!;
       adj.get(cur.id)?.forEach(child => {
         const ex = levels.get(child) ?? -1;
         if (lv + 1 > ex) {
@@ -209,7 +304,6 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
     }
     stepNodes.forEach(n => { if (!levels.has(n.id)) levels.set(n.id, 0); });
 
-    // Group by level
     const byLevel = new Map<number, CanvasNode[]>();
     let maxL = 0;
     stepNodes.forEach(n => {
@@ -219,28 +313,26 @@ function computeGraphLayout(nodes: CanvasNode[], edges: CanvasEdge[]): LayoutDat
       byLevel.get(lv)!.push(n);
     });
 
-    // ── Hybrid placement: for each level, pack into rows of MAX_COLS ──────
     let levelCursorY = cursorY;
     for (let L = 0; L <= maxL; L++) {
       const lvNodes = byLevel.get(L) || [];
       const colsInLevel = Math.min(lvNodes.length, MAX_COLS);
 
-      // Pack into rows within this level
       lvNodes.forEach((n, idx) => {
         const col = idx % colsInLevel;
         const row = Math.floor(idx / colsInLevel);
-        const sz  = nodeSize(n.nodeType);
+        const sz = nodeSize(n.nodeType);
         const rowCount = Math.min(colsInLevel, lvNodes.length - row * colsInLevel);
         const totalW = rowCount * sz.w + (rowCount - 1) * H_GAP;
         const rowStartX = CX - totalW / 2 + sz.w / 2;
-
         const rowsInLevel = Math.ceil(lvNodes.length / colsInLevel);
         const levelH = rowsInLevel * sz.h + (rowsInLevel - 1) * V_GAP;
+
         posMap[n.id] = {
           x: rowStartX + col * (sz.w + H_GAP),
           y: levelCursorY + row * (sz.h + V_GAP),
         };
-        // Track level height for next level cursor
+
         if (idx === lvNodes.length - 1) {
           levelCursorY += levelH + V_GAP * 2;
         }
@@ -271,12 +363,10 @@ function bezierPath(fx: number, fy: number, tx: number, ty: number, fromH = NODE
   }
 }
 
-// ─── Formula Renderer — styled with subscript/superscript support ─────────────
+// ─── Formula Renderer ─────────────────────────────────────────────────────────
 
 function renderFormula(text: string): React.ReactNode {
-  // Replace chemical subscript patterns: CO2 → CO₂, H2O → H₂O, C6H12O6 → C₆H₁₂O₆
   const SUB_MAP: Record<string, string> = { '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄', '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉' };
-  // Replace → with proper arrow, format subscripts after letters
   const parts = text.split(/(\s*→\s*|\s*=\s*|\s*\+\s*)/g);
   return (
     <span style={{ fontFamily: "'Courier New', monospace", letterSpacing: '0.02em' }}>
@@ -284,7 +374,6 @@ function renderFormula(text: string): React.ReactNode {
         if (part.trim() === '→') return <span key={i} style={{ color: '#fbbf24', fontWeight: 900, margin: '0 4px' }}>→</span>;
         if (part.trim() === '=') return <span key={i} style={{ color: '#a78bfa', fontWeight: 900, margin: '0 4px' }}>=</span>;
         if (part.trim() === '+') return <span key={i} style={{ color: '#60a5fa', fontWeight: 700, margin: '0 3px' }}>+</span>;
-        // Convert digits after letters to subscripts
         return (
           <span key={i}>
             {part.split('').map((ch, j) => {
@@ -300,7 +389,7 @@ function renderFormula(text: string): React.ReactNode {
   );
 }
 
-// ─── VisualNodeCard — Image-first with graceful text-only fallback ─────────────
+// ─── Shared card props ────────────────────────────────────────────────────────
 
 interface CardProps {
   node: CanvasNode;
@@ -314,7 +403,253 @@ interface CardProps {
   focusMode?: boolean;
 }
 
-const VisualNodeCard: React.FC<CardProps> = ({ node, pos, isRev, isCur, isPast, accent, focusScale = 1, focusOpacity = 1, focusMode = false }) => {
+// ─── RichTextNode — the NEW primary text-content node ────────────────────────
+// Handles: definition, insight, note, summary, qa, formula_text
+// Design: newspaper-editorial style — content is king, layout is clean.
+
+const RichTextNode: React.FC<CardProps> = ({
+  node, pos, isRev, isCur, isPast, accent,
+  focusOpacity = 1, focusMode = false,
+}) => {
+  const theme = RICH_TEXT_THEMES[node.nodeType || ''] ?? {
+    bg: `linear-gradient(145deg, ${accent}18, rgba(5,13,26,0.97))`,
+    borderColor: `${accent}44`,
+    accentBar: accent,
+    tagBg: `${accent}22`,
+    tagText: accent,
+    icon: '📌',
+    label: node.nodeType ?? 'Note',
+    detailColor: '#7a9bb8',
+    labelColor: '#dde4ef',
+  };
+
+  const isQA = node.nodeType === 'qa';
+  const isFormula = node.nodeType === 'formula_text';
+  const isSummary = node.nodeType === 'summary';
+  const { w, h } = nodeSize(node.nodeType);
+
+  // QA: split "Q: ...\nA: ..." into parts for styled rendering
+  const qaLines = isQA && node.detail
+    ? node.detail.split('\n').map(line => {
+      if (line.startsWith('Q:')) return { type: 'q', text: line.replace(/^Q:\s*/, '') };
+      if (line.startsWith('A:')) return { type: 'a', text: line.replace(/^A:\s*/, '') };
+      return { type: 'body', text: line };
+    })
+    : [];
+
+  // Summary: parse bullet list "• ..." or "- ..."
+  const summaryLines = isSummary && node.detail
+    ? node.detail.split('\n').filter(l => l.trim())
+    : [];
+
+  const baseOpacity = isRev
+    ? (focusMode ? focusOpacity : isPast ? 0.78 : 0.97)
+    : 0;
+
+  return (
+    <div style={{
+      position: 'absolute',
+      left: pos.x - w / 2,
+      top: pos.y - h / 2,
+      width: w,
+      minHeight: h,
+      opacity: baseOpacity,
+      transform: isRev ? 'scale(1) translateY(0)' : 'scale(0.88) translateY(18px)',
+      transition: 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
+      zIndex: isCur ? 22 : 3,
+      pointerEvents: 'none',
+      background: theme.bg,
+      borderRadius: 16,
+      border: `1px solid ${isCur ? theme.accentBar + '88' : theme.borderColor}`,
+      borderLeft: `5px solid ${theme.accentBar}`,
+      boxShadow: isCur
+        ? `0 0 36px ${theme.accentBar}40, 0 16px 48px rgba(0,0,0,0.85), 5px 0 0 ${theme.accentBar}28`
+        : '0 4px 20px rgba(0,0,0,0.6)',
+      backdropFilter: 'blur(24px)',
+      overflow: 'hidden',
+      padding: '18px 20px 20px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+    }}>
+
+      {/* ── Tag row ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0 }}>
+        <span style={{ fontSize: 13 }}>{theme.icon}</span>
+        <span style={{
+          background: theme.tagBg,
+          color: theme.tagText,
+          fontSize: 8.5,
+          fontWeight: 900,
+          letterSpacing: '0.13em',
+          textTransform: 'uppercase',
+          padding: '2.5px 9px',
+          borderRadius: 999,
+          fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+        }}>
+          {theme.label}
+        </span>
+        {isCur && (
+          <div style={{
+            marginLeft: 'auto',
+            width: 6, height: 6, borderRadius: '50%',
+            background: theme.accentBar,
+            boxShadow: `0 0 8px ${theme.accentBar}`,
+            animation: 'pulse 1.5s infinite',
+          }} />
+        )}
+      </div>
+
+      {/* ── Label / Title ── */}
+      <div style={{
+        color: isCur ? theme.labelColor : isPast ? '#4e6a82' : theme.labelColor + 'bb',
+        fontSize: 13.5,
+        fontWeight: 800,
+        lineHeight: 1.3,
+        fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+        letterSpacing: '-0.01em',
+        wordBreak: 'break-word',
+        flexShrink: 0,
+      }}>
+        {node.label}
+      </div>
+
+      {/* ── Divider ── */}
+      <div style={{
+        height: 1,
+        background: `linear-gradient(90deg, ${theme.accentBar}55, transparent)`,
+        flexShrink: 0,
+      }} />
+
+      {/* ── Detail content — rendered differently per type ── */}
+      {node.detail && (
+        <div style={{
+          flex: 1,
+          overflow: 'hidden',
+          opacity: isRev ? 1 : 0,
+          transition: 'opacity 0.9s ease 0.15s',
+        }}>
+
+          {/* Q&A styled rendering */}
+          {isQA && qaLines.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+              {qaLines.map((line, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                  {line.type !== 'body' && (
+                    <span style={{
+                      color: line.type === 'q' ? '#fbbf24' : '#34d399',
+                      fontWeight: 900,
+                      fontSize: 11,
+                      fontFamily: "'JetBrains Mono', monospace",
+                      flexShrink: 0,
+                      marginTop: 1,
+                      minWidth: 16,
+                    }}>
+                      {line.type === 'q' ? 'Q:' : 'A:'}
+                    </span>
+                  )}
+                  <span style={{
+                    color: line.type === 'q'
+                      ? (isCur ? '#fde68a' : '#7a6a40')
+                      : line.type === 'a'
+                        ? (isCur ? theme.detailColor : '#3a5a50')
+                        : (isCur ? '#7a9bb8' : '#304558'),
+                    fontSize: 11,
+                    lineHeight: 1.55,
+                    fontFamily: 'Inter, system-ui, sans-serif',
+                    fontWeight: line.type === 'q' ? 700 : 450,
+                    wordBreak: 'break-word',
+                  }}>
+                    {line.text}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Summary: bullet list */}
+          {isSummary && summaryLines.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {summaryLines.map((line, i) => {
+                const isBullet = line.trim().startsWith('•') || line.trim().startsWith('-') || line.trim().startsWith('*');
+                const text = isBullet ? line.replace(/^[\s•\-\*]+/, '') : line;
+                return (
+                  <div key={i} style={{ display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                    {isBullet && (
+                      <span style={{
+                        color: theme.accentBar,
+                        fontSize: 10,
+                        flexShrink: 0,
+                        marginTop: 3,
+                      }}>▸</span>
+                    )}
+                    <span style={{
+                      color: isCur ? theme.detailColor : '#3d6050',
+                      fontSize: 11,
+                      lineHeight: 1.5,
+                      fontFamily: 'Inter, system-ui, sans-serif',
+                      fontWeight: 450,
+                      wordBreak: 'break-word',
+                    }}>
+                      {text}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Formula: monospace styled */}
+          {isFormula && (
+            <div style={{
+              fontSize: 12,
+              lineHeight: 1.8,
+              fontWeight: 600,
+              color: isCur ? '#fde68a' : '#6a5828',
+              wordBreak: 'break-word',
+            }}>
+              {renderFormula(node.detail)}
+            </div>
+          )}
+
+          {/* Definition / Insight / Note: plain flowing text */}
+          {!isQA && !isSummary && !isFormula && (
+            <div style={{
+              color: isCur ? theme.detailColor : isPast ? '#2e4558' : theme.detailColor + '88',
+              fontSize: 11.5,
+              lineHeight: 1.65,
+              fontFamily: 'Inter, system-ui, sans-serif',
+              fontWeight: 450,
+              wordBreak: 'break-word',
+            }}>
+              {node.detail}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Active glow bar */}
+      {isCur && (
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: 3,
+          background: `linear-gradient(90deg, transparent, ${theme.accentBar}, transparent)`,
+          animation: 'shimmer 2s infinite',
+        }} />
+      )}
+
+      {/* Ports */}
+      <div style={{ position: 'absolute', top: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? theme.accentBar : 'rgba(71,85,105,0.3)'}`, zIndex: 2 }} />
+      <div style={{ position: 'absolute', bottom: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? theme.accentBar : 'rgba(71,85,105,0.3)'}`, zIndex: 2 }} />
+    </div>
+  );
+};
+
+// ─── VisualNodeCard — image-first with text fallback ─────────────────────────
+
+const VisualNodeCard: React.FC<CardProps> = ({
+  node, pos, isRev, isCur, isPast, accent,
+  focusOpacity = 1, focusMode = false,
+}) => {
   const safePrompt = encodeURIComponent(
     (node.label ? node.label.replace(/[^a-zA-Z0-9\s]/g, '') : 'educational diagram') + ' educational illustration detailed'
   );
@@ -329,7 +664,7 @@ const VisualNodeCard: React.FC<CardProps> = ({ node, pos, isRev, isCur, isPast, 
       setImgStatus('loading');
       setImgSrc(node.imageUrl || pollinationsUrl);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.id]);
 
   useEffect(() => {
@@ -364,7 +699,6 @@ const VisualNodeCard: React.FC<CardProps> = ({ node, pos, isRev, isCur, isPast, 
   const showImage = imgStatus !== 'error';
   const w = NODE_W;
   const h = NODE_H;
-  const scale = isCur ? focusScale : 1;
 
   return (
     <div style={{
@@ -374,9 +708,7 @@ const VisualNodeCard: React.FC<CardProps> = ({ node, pos, isRev, isCur, isPast, 
       width: w,
       height: h,
       opacity: isRev ? (focusMode ? focusOpacity : isPast ? 0.8 : 0.95) : 0,
-      transform: isRev
-        ? 'scale(1) translateY(0)'
-        : 'scale(0.82) translateY(32px)',
+      transform: isRev ? 'scale(1) translateY(0)' : 'scale(0.82) translateY(32px)',
       transition: 'all 0.85s cubic-bezier(0.16, 1, 0.3, 1)',
       zIndex: isCur ? 20 : 2,
       pointerEvents: 'none',
@@ -394,7 +726,6 @@ const VisualNodeCard: React.FC<CardProps> = ({ node, pos, isRev, isCur, isPast, 
       display: 'flex',
       flexDirection: 'column',
     }}>
-      {/* Image top half */}
       {showImage && (
         <div style={{ width: '100%', height: '50%', position: 'relative', flexShrink: 0, overflow: 'hidden', backgroundColor: 'rgba(0,0,0,0.4)' }}>
           {imgStatus === 'loading' && (
@@ -422,7 +753,6 @@ const VisualNodeCard: React.FC<CardProps> = ({ node, pos, isRev, isCur, isPast, 
         </div>
       )}
 
-      {/* Text */}
       <div style={{ padding: showImage ? '14px 18px 16px' : '22px 20px', display: 'flex', flexDirection: 'column', flexGrow: 1, alignItems: 'center', justifyContent: 'center' }}>
         <div style={{
           color: isCur ? '#f8fafc' : isPast ? '#94a3b8' : '#dde4ef',
@@ -463,36 +793,31 @@ const VisualNodeCard: React.FC<CardProps> = ({ node, pos, isRev, isCur, isPast, 
         )}
       </div>
 
-      {/* Ports */}
       <div style={{ position: 'absolute', top: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.35)'}`, zIndex: 2 }} />
       <div style={{ position: 'absolute', bottom: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.35)'}`, zIndex: 2 }} />
     </div>
   );
 };
 
-// ─── TeacherNode — explanation / example / formula ────────────────────────────
+// ─── Legacy TeacherNode (explanation / example / formula) ────────────────────
 
 const TEACHER_THEMES: Record<string, { bg: string; border: string; tag: string; tagText: string; icon: string; label: string }> = {
   explanation: { bg: 'linear-gradient(135deg, rgba(129,140,248,0.14), rgba(5,13,26,0.97))', border: '#818cf866', tag: 'rgba(129,140,248,0.2)', tagText: '#a5b4fc', icon: '💡', label: 'Concept' },
-  example:     { bg: 'linear-gradient(135deg, rgba(52,211,153,0.14), rgba(5,13,26,0.97))',  border: '#34d39966', tag: 'rgba(52,211,153,0.2)',  tagText: '#6ee7b7', icon: '🌍', label: 'Example' },
-  formula:     { bg: 'linear-gradient(135deg, rgba(251,191,36,0.14), rgba(5,13,26,0.97))',  border: '#fbbf2466', tag: 'rgba(251,191,36,0.2)',  tagText: '#fde68a', icon: '📐', label: 'Formula' },
+  example: { bg: 'linear-gradient(135deg, rgba(52,211,153,0.14), rgba(5,13,26,0.97))', border: '#34d39966', tag: 'rgba(52,211,153,0.2)', tagText: '#6ee7b7', icon: '🌍', label: 'Example' },
+  formula: { bg: 'linear-gradient(135deg, rgba(251,191,36,0.14), rgba(5,13,26,0.97))', border: '#fbbf2466', tag: 'rgba(251,191,36,0.2)', tagText: '#fde68a', icon: '📐', label: 'Formula' },
 };
 
-interface TeacherNodeProps extends CardProps {}
-
-const TeacherNode: React.FC<TeacherNodeProps> = ({ node, pos, isRev, isCur, isPast, accent, focusScale = 1, focusOpacity = 1, focusMode = false }) => {
+const TeacherNode: React.FC<CardProps> = ({
+  node, pos, isRev, isCur, isPast, accent,
+  focusOpacity = 1, focusMode = false,
+}) => {
   const theme = TEACHER_THEMES[node.nodeType || ''] ?? {
     bg: `linear-gradient(135deg, ${accent}14, rgba(5,13,26,0.97))`,
-    border: `${accent}55`,
-    tag: `${accent}22`,
-    tagText: accent,
-    icon: '📌',
-    label: node.nodeType ?? 'Note',
+    border: `${accent}55`, tag: `${accent}22`, tagText: accent, icon: '📌', label: node.nodeType ?? 'Note',
   };
   const isFormula = node.nodeType === 'formula';
   const w = EXPLAIN_W;
   const h = EXPLAIN_H;
-  const scale = isCur ? focusScale : 1;
 
   return (
     <div style={{
@@ -517,31 +842,23 @@ const TeacherNode: React.FC<TeacherNodeProps> = ({ node, pos, isRev, isCur, isPa
       overflow: 'hidden',
       padding: '20px 22px 24px',
     }}>
-      {/* Tag */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <span style={{ fontSize: 16 }}>{theme.icon}</span>
         <span style={{ background: theme.tag, color: theme.tagText, fontSize: 9, fontWeight: 900, letterSpacing: '0.12em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 999, fontFamily: 'Inter, system-ui, sans-serif' }}>
           {theme.label}
         </span>
       </div>
-
-      {/* Label */}
       <div style={{ color: isCur ? '#f1f5f9' : isPast ? '#8ba4be' : '#dde4ef', fontSize: 14, fontWeight: 800, lineHeight: 1.35, fontFamily: 'Inter, system-ui, sans-serif', letterSpacing: '-0.01em', marginBottom: 10, wordBreak: 'break-word' }}>
         {node.label}
       </div>
-
-      {/* Detail — formula gets styled, others get plain text */}
       {node.detail && (
         <div style={{ color: isCur ? '#cbd5e1' : isPast ? '#3a5069' : '#5a7a96', fontSize: isFormula ? 15 : 12.5, fontWeight: isFormula ? 700 : 450, lineHeight: isFormula ? 1.8 : 1.6, fontFamily: isFormula ? "'Courier New', monospace" : 'Inter, system-ui, sans-serif', opacity: isRev ? 1 : 0, transition: 'opacity 0.9s ease 0.2s', wordBreak: 'break-word' }}>
           {isFormula ? renderFormula(node.detail) : node.detail}
         </div>
       )}
-
       {isCur && (
         <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 3, borderRadius: 3, background: `linear-gradient(90deg, transparent, ${accent}, transparent)`, animation: 'shimmer 2s infinite' }} />
       )}
-
-      {/* Ports */}
       <div style={{ position: 'absolute', top: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.3)'}`, zIndex: 2 }} />
       <div style={{ position: 'absolute', bottom: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.3)'}`, zIndex: 2 }} />
     </div>
@@ -550,36 +867,77 @@ const TeacherNode: React.FC<TeacherNodeProps> = ({ node, pos, isRev, isCur, isPa
 
 // ─── DecisionNode ─────────────────────────────────────────────────────────────
 
-interface DecisionNodeProps extends CardProps {}
-
-const DecisionNode: React.FC<DecisionNodeProps> = ({ node, pos, isRev, isCur, isPast, accent, focusScale = 1, focusOpacity = 1, focusMode = false }) => {
-  const scale = isCur ? focusScale : 1;
-  return (
+const DecisionNode: React.FC<CardProps> = ({
+  node, pos, isRev, isCur, isPast, accent,
+  focusOpacity = 1, focusMode = false,
+}) => (
+  <div style={{
+    position: 'absolute', left: pos.x - NODE_W / 2, top: pos.y - NODE_H / 2, width: NODE_W, height: NODE_H,
+    opacity: isRev ? (focusMode ? focusOpacity : isPast ? 0.8 : 0.95) : 0,
+    transform: isRev ? 'translateY(0) scale(1)' : 'translateY(26px) scale(0.85)',
+    transition: 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
+    zIndex: isCur ? 20 : 1, pointerEvents: 'none',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  }}>
+    <div style={{ position: 'absolute', top: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
     <div style={{
-      position: 'absolute', left: pos.x - NODE_W / 2, top: pos.y - NODE_H / 2, width: NODE_W, height: NODE_H,
-      opacity: isRev ? (focusMode ? focusOpacity : isPast ? 0.8 : 0.95) : 0,
-      transform: isRev ? 'translateY(0) scale(1)' : 'translateY(26px) scale(0.85)',
+      position: 'absolute', width: NODE_H * 1.1, height: NODE_H * 1.1,
+      background: isCur ? `linear-gradient(135deg, ${accent}32, rgba(8,16,32,0.96))` : isPast ? 'rgba(8,16,30,0.85)' : 'rgba(10,20,40,0.95)',
+      border: `1.5px solid ${isCur ? accent : isPast ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
+      transform: 'rotate(45deg)', borderRadius: 12,
+      boxShadow: isCur ? `0 0 28px ${accent}45, 0 10px 36px rgba(0,0,0,0.7)` : '0 4px 18px rgba(0,0,0,0.55)',
       transition: 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
-      zIndex: isCur ? 20 : 1, pointerEvents: 'none',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div style={{ position: 'absolute', top: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
-      <div style={{
-        position: 'absolute', width: NODE_H * 1.1, height: NODE_H * 1.1,
-        background: isCur ? `linear-gradient(135deg, ${accent}32, rgba(8,16,32,0.96))` : isPast ? 'rgba(8,16,30,0.85)' : 'rgba(10,20,40,0.95)',
-        border: `1.5px solid ${isCur ? accent : isPast ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.1)'}`,
-        transform: 'rotate(45deg)', borderRadius: 12,
-        boxShadow: isCur ? `0 0 28px ${accent}45, 0 10px 36px rgba(0,0,0,0.7)` : '0 4px 18px rgba(0,0,0,0.55)',
-        transition: 'all 0.8s cubic-bezier(0.16, 1, 0.3, 1)',
-      }} />
-      <div style={{ position: 'relative', zIndex: 10, textAlign: 'center', padding: 14 }}>
-        <div style={{ color: isCur ? '#f8fafc' : isPast ? '#5a7a96' : '#94a3b8', fontSize: 12, fontWeight: 800, lineHeight: 1.35, letterSpacing: '0.02em', wordBreak: 'break-word' }}>
-          {node.label}
-        </div>
+    }} />
+    <div style={{ position: 'relative', zIndex: 10, textAlign: 'center', padding: 14 }}>
+      <div style={{ color: isCur ? '#f8fafc' : isPast ? '#5a7a96' : '#94a3b8', fontSize: 12, fontWeight: 800, lineHeight: 1.35, letterSpacing: '0.02em', wordBreak: 'break-word' }}>
+        {node.label}
       </div>
-      <div style={{ position: 'absolute', bottom: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
     </div>
-  );
+    <div style={{ position: 'absolute', bottom: -PORT_R, left: '50%', transform: 'translateX(-50%)', width: PORT_R * 2, height: PORT_R * 2, borderRadius: '50%', background: '#050d1a', border: `2px solid ${isRev ? accent : 'rgba(71,85,105,0.4)'}`, zIndex: 2 }} />
+  </div>
+);
+
+// ─── Node Dispatcher — routes each nodeType to the correct renderer ───────────
+
+const NodeDispatcher: React.FC<CardProps> = (props) => {
+  const { node } = props;
+  const nt = node.nodeType;
+
+  // 1. Emoji annotation
+  if (nt === 'emoji') {
+    const { pos, isRev, isCur, isPast, accent, focusOpacity = 1, focusMode = false } = props;
+    const emojiOpacity = focusMode ? (isCur ? 1 : 0.4) : (isRev ? (isCur ? 1 : isPast ? 0.6 : 0.9) : 0);
+    return (
+      <div style={{
+        position: 'absolute', left: pos.x - 60, top: pos.y - 52, textAlign: 'center', width: 120,
+        opacity: emojiOpacity,
+        transform: isRev ? 'scale(1)' : 'scale(0.6) translateY(20px)',
+        transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
+        pointerEvents: 'none',
+      }}>
+        <div style={{ fontSize: 50, lineHeight: 1, filter: isCur ? `drop-shadow(0 0 16px ${accent}cc)` : 'none' }}>
+          {node.emojiContent}
+        </div>
+        {node.label && (
+          <div style={{ marginTop: 7, color: isCur ? '#e2e8f0' : '#4a6580', fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+            {node.label}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // 2. Decision diamond
+  if (nt === 'decision') return <DecisionNode {...props} />;
+
+  // 3. NEW: Rich text nodes from groqservice
+  if (nt && RICH_TEXT_TYPES.has(nt)) return <RichTextNode {...props} />;
+
+  // 4. Legacy teacher nodes (backward compat)
+  if (nt && LEGACY_TEACHER_TYPES.has(nt)) return <TeacherNode {...props} />;
+
+  // 5. Default: image-first visual card (input, output, process, flow, image, etc.)
+  return <VisualNodeCard {...props} />;
 };
 
 // ─── Main StoryboardCanvas Component ─────────────────────────────────────────
@@ -595,7 +953,7 @@ const StoryboardCanvas: React.FC<Props> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1200, h: 700 });
-  const mouseMoveTimer = useRef<ReturnType<typeof setTimeout>>(setTimeout(() => {}, 0));
+  const mouseMoveTimer = useRef<ReturnType<typeof setTimeout>>(setTimeout(() => { }, 0));
   const [focusMode, setFocusMode] = useState(false);
 
   useEffect(() => {
@@ -608,7 +966,6 @@ const StoryboardCanvas: React.FC<Props> = ({
     return () => ro.disconnect();
   }, []);
 
-  // Focus mode: enter when speaking, exit on mouse movement
   useEffect(() => {
     if (isSpeaking) {
       const t = setTimeout(() => { setFocusMode(true); onFocusModeChange?.(true); }, 1200);
@@ -624,7 +981,6 @@ const StoryboardCanvas: React.FC<Props> = ({
       setFocusMode(false);
       onFocusModeChange?.(false);
       clearTimeout(mouseMoveTimer.current);
-      // Re-enter focus mode after 4s of inactivity if still speaking
       if (isSpeaking) {
         mouseMoveTimer.current = setTimeout(() => {
           setFocusMode(true);
@@ -636,7 +992,7 @@ const StoryboardCanvas: React.FC<Props> = ({
 
   const layout = useMemo(() => computeGraphLayout(nodes, edges), [nodes, edges]);
 
-  // ── Reveal timing ──────────────────────────────────────────────────────────
+  // ── Reveal timing ─────────────────────────────────────────────────────────
   const revealed = useMemo(() => {
     const s = new Set<string>();
     nodes.forEach(n => {
@@ -651,17 +1007,14 @@ const StoryboardCanvas: React.FC<Props> = ({
     return s;
   }, [nodes, currentStepIndex, relativeTime, stepDurations]);
 
-  // ── Stage Detection from TTS & Context-Aware Camera Lock ─────────────────
+  // ── Active node ───────────────────────────────────────────────────────────
   const activeId = useMemo(() => {
-    // The App.tsx `relativeTime` is fundamentally pinned to the exact charIndex / narrative progress
-    // Therefore, stepping through nodes proportionally ensures perfectly robust TTS synchronization
-    // without risk of getting permanently stuck on unmatched token subsets (e.g. "definition").
     return nodes
       .filter(n => n.stepIndex === currentStepIndex && revealed.has(n.id))
       .sort((a, b) => b.indexInStep - a.indexInStep)[0]?.id ?? null;
   }, [nodes, currentStepIndex, revealed]);
 
-  // ── Connected node IDs (for focus mode opacity) ────────────────────────────
+  // ── Connected node IDs ────────────────────────────────────────────────────
   const connectedIds = useMemo(() => {
     if (!activeId) return new Set<string>();
     const s = new Set<string>();
@@ -672,7 +1025,7 @@ const StoryboardCanvas: React.FC<Props> = ({
     return s;
   }, [activeId, edges]);
 
-  // ── Camera ─────────────────────────────────────────────────────────────────
+  // ── Camera ────────────────────────────────────────────────────────────────
   const [camX, setCamX] = useState(0);
   const [camY, setCamY] = useState(0);
   const [camZoom, setCamZoom] = useState(0.68);
@@ -680,12 +1033,8 @@ const StoryboardCanvas: React.FC<Props> = ({
   const isDragging = useRef(false);
   const lastPtr = useRef({ x: 0, y: 0 });
 
-  // nodeSize is defined at module level above — no need to duplicate
-
-  // Auto-follow: when in focus mode → center on active node tightly. Otherwise → fit step.
   useEffect(() => {
     if (isManual) return;
-
     const stepNodes = nodes.filter(n => n.stepIndex === currentStepIndex);
     if (!stepNodes.length) return;
 
@@ -698,7 +1047,6 @@ const StoryboardCanvas: React.FC<Props> = ({
         setCamZoom(z);
       }
     } else {
-      // Fit bounding box of all step nodes with proper node-size padding
       const pts = stepNodes.map(n => ({ p: layout.posMap[n.id] || { x: CX, y: START_Y }, sz: nodeSize(n.nodeType) }));
       const minX = Math.min(...pts.map(p => p.p.x - p.sz.w / 2));
       const maxX = Math.max(...pts.map(p => p.p.x + p.sz.w / 2));
@@ -739,7 +1087,7 @@ const StoryboardCanvas: React.FC<Props> = ({
 
   const cameraStr = `translate(${camX}px, ${camY}px) scale(${camZoom})`;
 
-  // ── Edge paths ─────────────────────────────────────────────────────────────
+  // ── Edge paths ────────────────────────────────────────────────────────────
   const edgePaths = useMemo(() => {
     const map = new Map(nodes.map(n => [n.id, n]));
     return edges.map(e => {
@@ -785,13 +1133,12 @@ const StoryboardCanvas: React.FC<Props> = ({
         transition: 'opacity 1s ease',
       }} />
 
-      {/* Focus mode vignette overlay */}
+      {/* Focus mode vignette */}
       <div style={{
         position: 'absolute', inset: 0, pointerEvents: 'none',
         background: 'radial-gradient(ellipse at 50% 50%, transparent 30%, rgba(2,6,14,0.7) 100%)',
         opacity: focusMode ? 1 : 0,
-        transition: 'opacity 1.2s ease',
-        zIndex: 1,
+        transition: 'opacity 1.2s ease', zIndex: 1,
       }} />
 
       {/* Focus mode badge */}
@@ -801,8 +1148,7 @@ const StoryboardCanvas: React.FC<Props> = ({
           background: 'rgba(129,140,248,0.15)', border: '1px solid rgba(129,140,248,0.4)',
           padding: '6px 18px', borderRadius: 999, zIndex: 55,
           display: 'flex', alignItems: 'center', gap: 7,
-          backdropFilter: 'blur(16px)',
-          animation: 'fadeInDown 0.4s ease',
+          backdropFilter: 'blur(16px)', animation: 'fadeInDown 0.4s ease',
         }}>
           <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#818cf8', animation: 'pulse 1.5s infinite' }} />
           <span style={{ color: '#a5b4fc', fontSize: 10, fontWeight: 900, letterSpacing: '0.14em', textTransform: 'uppercase', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -814,7 +1160,7 @@ const StoryboardCanvas: React.FC<Props> = ({
       {/* Reset view button */}
       {isManual && (
         <button
-          onClick={() => { setIsManual(false); }}
+          onClick={() => setIsManual(false)}
           style={{
             position: 'absolute', bottom: 90, right: 24, zIndex: 55,
             padding: '8px 16px', background: 'rgba(99,102,241,0.2)',
@@ -865,8 +1211,7 @@ const StoryboardCanvas: React.FC<Props> = ({
           const edgeOpacity = focusMode ? (ep.isConnected ? 0.9 : 0.3) : 0.95;
           return (
             <div key={`lbl-${ep.id}`} style={{
-              position: 'absolute', left: ep.lx, top: ep.ly,
-              transform: 'translate(-50%, -50%)',
+              position: 'absolute', left: ep.lx, top: ep.ly, transform: 'translate(-50%, -50%)',
               background: '#070f20', border: `1px solid ${color}44`, color,
               fontSize: 10.5, fontWeight: 700, padding: '3px 11px', borderRadius: 14,
               opacity: edgeOpacity, pointerEvents: 'none', whiteSpace: 'nowrap',
@@ -879,7 +1224,7 @@ const StoryboardCanvas: React.FC<Props> = ({
           );
         })}
 
-        {/* Nodes */}
+        {/* Nodes — all dispatched through NodeDispatcher */}
         {nodes.map(node => {
           const pos = layout.posMap[node.id] || { x: CX, y: START_Y };
           const isRev = revealed.has(node.id);
@@ -888,47 +1233,31 @@ const StoryboardCanvas: React.FC<Props> = ({
           const accent = ACCENTS[node.stepIndex % ACCENTS.length];
           const isConnected = connectedIds.has(node.id);
 
-          // Focus mode: differentiated opacity
           let focusOpacity = 1;
           if (focusMode && isRev) {
             focusOpacity = isCur ? 1 : isConnected ? 0.85 : 0.55;
           }
-          const focusScale = 1;
 
-          // Emoji node
-          if (node.nodeType === 'emoji') {
-            const emojiOpacity = focusMode ? (isCur ? 1 : 0.4) : (isRev ? (isCur ? 1 : isPast ? 0.6 : 0.9) : 0);
-            return (
-              <div key={node.id} style={{
-                position: 'absolute', left: pos.x - 60, top: pos.y - 52,
-                textAlign: 'center', width: 120,
-                opacity: emojiOpacity,
-                transform: isRev ? 'scale(1)' : 'scale(0.6) translateY(20px)',
-                transition: 'all 0.7s cubic-bezier(0.16, 1, 0.3, 1)',
-                pointerEvents: 'none',
-              }}>
-                <div style={{ fontSize: 50, lineHeight: 1, filter: isCur ? `drop-shadow(0 0 16px ${accent}cc)` : 'none' }}>
-                  {node.emojiContent}
-                </div>
-                {node.label && (
-                  <div style={{ marginTop: 7, color: isCur ? '#e2e8f0' : '#4a6580', fontSize: 10, fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
-                    {node.label}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          const sharedProps = { node, pos, isRev, isCur, isPast, accent, focusScale, focusOpacity, focusMode };
-
-          // Step section header (first node only)
           const stepHeader = (node.indexInStep === 0 && stepTitles[node.stepIndex])
             ? renderStepHeader(node, stepTitles, layout, currentStepIndex, isRev, accent, focusMode)
             : null;
 
-          if (node.nodeType === 'decision') return <React.Fragment key={node.id}>{stepHeader}<DecisionNode {...sharedProps} /></React.Fragment>;
-          if (node.nodeType === 'explanation' || node.nodeType === 'example' || node.nodeType === 'formula') return <React.Fragment key={node.id}>{stepHeader}<TeacherNode {...sharedProps} /></React.Fragment>;
-          return <React.Fragment key={node.id}>{stepHeader}<VisualNodeCard {...sharedProps} /></React.Fragment>;
+          return (
+            <React.Fragment key={node.id}>
+              {stepHeader}
+              <NodeDispatcher
+                node={node}
+                pos={pos}
+                isRev={isRev}
+                isCur={isCur}
+                isPast={isPast}
+                accent={accent}
+                focusScale={1}
+                focusOpacity={focusOpacity}
+                focusMode={focusMode}
+              />
+            </React.Fragment>
+          );
         })}
       </div>
 
@@ -949,7 +1278,6 @@ const StoryboardCanvas: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Global keyframes */}
       <style>{`
         @keyframes shimmer { 0%,100% { opacity:0.32; transform:scaleX(0.28); } 50% { opacity:1; transform:scaleX(1); } }
         @keyframes imgShimmer { 0%,100% { background-position:-200% center; } 50% { background-position:200% center; } }
