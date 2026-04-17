@@ -8,7 +8,7 @@ import AIChat from './components/AIChat';
 import { generateTutorialForTopic } from './services/groqService';
 import { exportTutorialAsHTML } from './utils/exportTutorial';
 import TutorialVideo from './components/Remotion/TutorialVideo';
-import { fetchNarrativeAudio, getBlobDuration, cleanTextForTTS } from './services/ttsService';
+import { fetchNarrativeAudio, getBlobDuration, cleanTextForTTS, streamNarrativeAudio } from './services/ttsService';
 import { detectInputLanguage } from './services/groqService';
 
 const App: React.FC = () => {
@@ -39,6 +39,8 @@ const App: React.FC = () => {
   const [currentTopic, setCurrentTopic] = useState('Lesson');
   const [ttsProgress, setTtsProgress] = useState<string>('');
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [loadingPhase, setLoadingPhase] = useState<'thinking' | 'building' | 'voicing'>('thinking');
+  const ttsAbortRef = useRef<AbortController | null>(null);
 
   const totalDuration = tutorialData.reduce((acc, step) => acc + step.duration, 0);
   const animationFrameRef = useRef<number>(0);
@@ -147,41 +149,59 @@ const App: React.FC = () => {
     stopAudio();
   }, [stopAudio]);
 
-  // ── Generate & Cache TTS audio for every step ────────────────────────────
-  const generateAllTTS = useCallback(async (steps: TutorialStep[], topic: string): Promise<TutorialStep[]> => {
-    const updated = [...steps];
-    // Detect from topic first; then ALSO check first narrative (most accurate —
-    // AI-generated Hindi narratives contain Devanagari even if topic was typed in Roman)
+  // ── Background streaming TTS — non-blocking ──────────────────────────────
+  // Called AFTER UI is already shown. Streams each step's audio in background.
+  const startBackgroundTTS = useCallback((steps: TutorialStep[], topic: string) => {
+    // Cancel any previous TTS streaming session
+    if (ttsAbortRef.current) ttsAbortRef.current.abort();
+    const abort = new AbortController();
+    ttsAbortRef.current = abort;
+
     const topicLang = detectInputLanguage(topic);
     const narrativeLang = steps[0]?.narrative ? detectInputLanguage(steps[0].narrative) : 'en';
-    // If either signal says Hindi → use Hindi voice
     const lang: 'hi' | 'en' = (topicLang === 'hi' || narrativeLang === 'hi') ? 'hi' : 'en';
-    console.log(`[TTS] Language detected: topic="${topicLang}" narrative="${narrativeLang}" → using "${lang}"`);
+    console.log(`[TTS:bg] Language: topic=${topicLang} narrative=${narrativeLang} → ${lang}`);
 
-    for (let i = 0; i < updated.length; i++) {
-      const step = updated[i];
-      if (!step.narrative || step.narrative.trim().length < 5) continue;
-      
-      setTtsProgress(`Generating voice ${i + 1}/${updated.length}...`);
-      
-      try {
-        const cacheId = `tts-${topic}-step-${i}`;
-        const blobUrl = await fetchNarrativeAudio(step.narrative, cacheId, lang);
-        
-        if (blobUrl) {
-          const audioDuration = await getBlobDuration(blobUrl);
-          updated[i] = {
-            ...step,
-            audioUrl: blobUrl,
-            duration: Math.max(step.duration, Math.ceil(audioDuration) + 2),
-          };
-        }
-      } catch (err) {
-        console.warn(`TTS generation failed for step ${i}:`, err);
-      }
-    }
-    setTtsProgress('');
-    return updated;
+    // Stream each step independently — don't await, fire-and-forget
+    steps.forEach((step, i) => {
+      if (!step.narrative || step.narrative.trim().length < 5) return;
+      const cacheId = `tts-${topic}-step-${i}`;
+
+      streamNarrativeAudio(
+        step.narrative,
+        cacheId,
+        lang,
+        // onFirstChunkReady — update step audio URL immediately when first chunk arrives
+        (firstUrl) => {
+          if (abort.signal.aborted) return;
+          setTutorialData(prev => {
+            const updated = [...prev];
+            if (updated[i] && !updated[i].audioUrl) {
+              updated[i] = { ...updated[i], audioUrl: firstUrl };
+              console.log(`[TTS:bg] ⚡ Step ${i} first chunk ready — audio available`);
+            }
+            return updated;
+          });
+        },
+        // onFullAudioReady — replace with full merged audio + correct duration
+        (fullUrl, duration) => {
+          if (abort.signal.aborted) return;
+          setTutorialData(prev => {
+            const updated = [...prev];
+            if (updated[i]) {
+              updated[i] = {
+                ...updated[i],
+                audioUrl: fullUrl,
+                duration: Math.max(updated[i].duration, Math.ceil(duration) + 2),
+              };
+              console.log(`[TTS:bg] ✅ Step ${i} full audio ready (${duration.toFixed(1)}s)`);
+            }
+            return updated;
+          });
+        },
+        abort.signal
+      );
+    });
   }, []);
 
   // ── Play cached audio blob for a step ────────────────────────────────────
@@ -296,32 +316,37 @@ const App: React.FC = () => {
 
   const handleNewTopic = async (topic: string) => {
     if (!topic.trim()) return;
+    stopAudio();
     setIsPlaying(false);
     setIsGenerating(true);
+    setLoadingPhase('thinking');
     setShowTopicModal(false);
     setCurrentTopic(topic);
-    stopAudio();
     
     try {
+      // Phase 1: AI generates script + diagram (~3-5 seconds)
+      setLoadingPhase('thinking');
       const newData = await generateTutorialForTopic(topic);
-      
-      // Generate & cache TTS audio for all steps in the background
-      setTtsProgress('Preparing voices...');
-      const dataWithAudio = await generateAllTTS(newData, topic);
-      
-      setTutorialData(dataWithAudio);
+
+      // Phase 2: Show UI INSTANTLY — no waiting for TTS!
+      setLoadingPhase('building');
+      setTutorialData(newData);
       setCurrentTime(0);
       setCurrentStepIndex(0);
       setProcessedEvents(new Set());
       setVisibleElements([]);
       setHighlightedIds(new Set());
       setStarted(true);
+      setIsGenerating(false); // Hide loading screen NOW
       setIsPlaying(true);
+
+      // Phase 3: TTS streams in background — audio appears as each chunk completes
+      setLoadingPhase('voicing');
+      startBackgroundTTS(newData, topic);
+
     } catch (e) {
-      alert("Lesson creation failed. Please try a different topic. Details: " + String(e));
-    } finally {
       setIsGenerating(false);
-      setTtsProgress('');
+      alert("Lesson creation failed. Please try a different topic. Details: " + String(e));
     }
   };
 
@@ -442,19 +467,90 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-full flex flex-col relative overflow-hidden bg-black">
       
-      {/* Global Loading Overlay */}
+      {/* Global Loading Overlay — Neural Architecture Animation */}
       {isGenerating && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-2xl z-[200] flex flex-col items-center justify-center">
-          <div className="relative">
-            <div className="w-24 h-24 border-[4px] border-white/10 rounded-full"></div>
-            <div className="absolute inset-0 w-24 h-24 border-[4px] border-indigo-500 border-t-transparent animate-spin rounded-full shadow-[0_0_30px_rgba(99,102,241,0.5)]"></div>
+        <div className="fixed inset-0 bg-[#030712] z-[200] flex flex-col items-center justify-center overflow-hidden">
+          {/* Animated neural background */}
+          <svg className="absolute inset-0 w-full h-full opacity-20" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="ng" cx="50%" cy="50%" r="60%">
+                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.4"/>
+                <stop offset="100%" stopColor="#030712" stopOpacity="0"/>
+              </radialGradient>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#ng)"/>
+            {/* Animated drifting nodes */}
+            {[...Array(18)].map((_, i) => (
+              <g key={i}>
+                <circle
+                  cx={`${8 + (i * 5.5) % 90}%`}
+                  cy={`${10 + (i * 7.3) % 80}%`}
+                  r={i % 3 === 0 ? 6 : i % 3 === 1 ? 4 : 3}
+                  fill="none"
+                  stroke={i % 4 === 0 ? '#6366f1' : i % 4 === 1 ? '#22d3ee' : i % 4 === 2 ? '#a78bfa' : '#34d399'}
+                  strokeWidth="1.5"
+                  style={{ animation: `pulse ${1.5 + (i % 4) * 0.4}s ease-in-out infinite alternate` }}
+                />
+                {i < 14 && (
+                  <line
+                    x1={`${8 + (i * 5.5) % 90}%`} y1={`${10 + (i * 7.3) % 80}%`}
+                    x2={`${8 + ((i + 3) * 5.5) % 90}%`} y2={`${10 + ((i + 2) * 7.3) % 80}%`}
+                    stroke="#6366f1" strokeWidth="0.5" strokeOpacity="0.4"
+                    strokeDasharray="4 6"
+                    style={{ animation: `dash ${2 + i * 0.2}s linear infinite` }}
+                  />
+                )}
+              </g>
+            ))}
+          </svg>
+
+          {/* Center content */}
+          <div className="relative z-10 text-center max-w-md px-8">
+            {/* Pulsing brain icon */}
+            <div className="relative inline-flex mb-8">
+              <div className="w-20 h-20 rounded-[2rem] bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center backdrop-blur-xl">
+                <span className="text-4xl" style={{ animation: 'pulse 1.2s ease-in-out infinite alternate' }}>
+                  {loadingPhase === 'thinking' ? '🧠' : loadingPhase === 'building' ? '🏗️' : '🎙️'}
+                </span>
+              </div>
+              <div className="absolute inset-0 rounded-[2rem] border-2 border-indigo-500/50" style={{ animation: 'spin 3s linear infinite' }}></div>
+            </div>
+
+            <h2 className="text-2xl font-black text-white mb-2 tracking-tight">
+              {loadingPhase === 'thinking' && 'AI is Thinking...'}
+              {loadingPhase === 'building' && 'Building Your Lesson...'}
+              {loadingPhase === 'voicing' && 'Architecting Lesson...'}
+            </h2>
+            <p className="text-slate-400 text-sm font-medium mb-8">
+              {loadingPhase === 'thinking' && `Analyzing "${currentTopic}" — generating script, diagrams & flow...`}
+              {loadingPhase === 'building' && 'Structuring visual nodes and narrative...'}
+              {loadingPhase === 'voicing' && 'Composing voice tracks in background...'}
+            </p>
+
+            {/* Step tracker */}
+            <div className="flex items-center gap-3 justify-center">
+              {(['thinking', 'building', 'voicing'] as const).map((phase, i) => (
+                <div key={phase} className="flex items-center gap-3">
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-all duration-500 ${
+                    loadingPhase === phase
+                      ? 'bg-indigo-500/20 border border-indigo-400/60 text-indigo-300'
+                      : (['thinking', 'building', 'voicing'].indexOf(loadingPhase) > i)
+                        ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+                        : 'bg-white/5 border border-white/10 text-slate-600'
+                  }`}>
+                    <span>{loadingPhase === phase ? '⚡' : (['thinking','building','voicing'].indexOf(loadingPhase) > i) ? '✓' : '○'}</span>
+                    <span>{phase === 'thinking' ? 'Script' : phase === 'building' ? 'Diagram' : 'Voice'}</span>
+                  </div>
+                  {i < 2 && <div className="w-4 h-px bg-white/10"></div>}
+                </div>
+              ))}
+            </div>
           </div>
-          <h2 className="text-3xl font-black text-white mt-10 mb-3 animate-pulse">
-            {ttsProgress ? 'Recording Voice...' : 'Architecting Lesson...'}
-          </h2>
-          <p className="text-indigo-400 font-mono text-xs uppercase tracking-[0.3em]">
-            {ttsProgress || 'Synthesizing multi-modal concepts'}
-          </p>
+
+          <style>{`
+            @keyframes dash { to { stroke-dashoffset: -20; } }
+            @keyframes spin { to { transform: rotate(360deg); } }
+          `}</style>
         </div>
       )}
 
@@ -574,19 +670,38 @@ const App: React.FC = () => {
             stopAudio();
             setIsPlaying(false);
             
-            setTtsProgress('Recording voice...');
+            // Show Q&A result immediately, stream audio in background
             try {
               const cacheId = `tts-qa-step-${Date.now()}`;
-              // Detect language from the generated narrative itself (most reliable)
               const qaLang = detectInputLanguage(newStep.narrative);
-              const blobUrl = await fetchNarrativeAudio(newStep.narrative, cacheId, qaLang);
-              if (blobUrl) {
-                const audioDuration = await getBlobDuration(blobUrl);
-                newStep.audioUrl = blobUrl;
-                newStep.duration = Math.max(newStep.duration, Math.ceil(audioDuration) + 2);
-              }
+              // Add step to UI instantly — voice comes in background
+              streamNarrativeAudio(
+                newStep.narrative, cacheId, qaLang,
+                (firstUrl) => {
+                  setTutorialData(prev => {
+                    const idx = prev.findIndex(s => s === newStep || s.title === newStep.title);
+                    if (idx !== -1) {
+                      const updated = [...prev];
+                      updated[idx] = { ...updated[idx], audioUrl: firstUrl };
+                      return updated;
+                    }
+                    return prev;
+                  });
+                },
+                (fullUrl, duration) => {
+                  setTutorialData(prev => {
+                    const idx = prev.findIndex(s => s.title === newStep.title);
+                    if (idx !== -1) {
+                      const updated = [...prev];
+                      updated[idx] = { ...updated[idx], audioUrl: fullUrl, duration: Math.max(updated[idx].duration, Math.ceil(duration) + 2) };
+                      return updated;
+                    }
+                    return prev;
+                  });
+                }
+              );
             } catch (err) {
-              console.warn("TTS generation failed for Q&A step:", err);
+              console.warn("TTS stream failed for Q&A step:", err);
             }
             setTtsProgress('');
 
